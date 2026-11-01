@@ -37,12 +37,12 @@ npm run pack:plugin
 
 [独立包门禁](../scripts/pack-plugin.mjs)检查版本、无执行/依赖字段和实际包清单；不需要构建服务。[接入测试](../tests/host-integrations.test.mjs)使用临时目录和空 npm 缓存离线安装真实 tarball。发布前还须通过本文的项目检查，并用对应宿主验收引导发现与连接，不能将 skill 文本当成模型已执行的证据。
 
-CI 分别生成服务与插件候选产物；当前 GitHub 发布工作流只上传服务包，**不会自动发布独立接入包**。接入包需单独授权发布，先核对同名目标版本未占用及 npm 账号/权限，再发布已检查的 `task-conductor-plugin-<版本>.tgz`，明确使用 `--ignore-scripts --access public --tag latest --registry=https://registry.npmjs.org`。不要为新包擅自复用服务包的 Trusted Publisher 授权或绕过登录/2FA。发布后核查该包的 registry 版本和 latest，并在隔离宿主配置中验证 `pi install npm:task-conductor-plugin`；实际已发布版本与验收边界见[验证说明](validation.md#宿主接入包)。
+CI 分别生成服务与插件候选产物；GitHub 发布工作流使用两个独立作业发布已检查的 tarball，并分别验证公开版本与安装。插件包须在 npm 配置自己的 Trusted Publisher；发布和安装成功不代表宿主模型已完成真实任务验收。实际证据见[验证说明](validation.md#宿主接入包)。
 
 ## GitHub Actions 门禁与受控发布
 
 - [Validate](../.github/workflows/ci.yml)：PR/master 或手动触发时在 Ubuntu 执行 TypeScript 与依赖边界检查、基础测试及构建；检查包清单。安装任务**不 checkout 项目源码**，只接收 tarball 和验收脚本，在当前 Linux runner 验证启动、重启及认证检查。常规 CI 使用 Linux runner，不能据此推断 macOS 验证结果。
-- [Publish npm](../.github/workflows/publish.yml)：推送 `v*` tag 自动触发，也保留手动入口；仅账号 realqiyan 可发起或重跑。[发布准入](../scripts/check-release.mjs)要求 tag 与包版本一致、锁文件版本一致，且提交已进入远端 master。手动入口仅接受 master 或版本 tag，输入版本须匹配。通过全部门禁后发布同一 tarball，不重建、不执行包脚本；上传前确认版本未占用，发布后核查 latest 并执行默认全局安装验证。
+- [Publish npm](../.github/workflows/publish.yml)：推送 `v*` tag 自动发布两个包，也保留手动入口；仅账号 realqiyan 可发起或重跑。[发布准入](../scripts/check-release.mjs)要求 tag 与包版本一致、锁文件版本一致，且提交已进入远端 master。手动入口仅接受 master 或版本 tag，输入版本须匹配，可选择两个包或单个包。通过全部门禁后发布已检查的 tarball，不重建、不执行包脚本；各包独立确认版本未占用，发布后核查 latest 并执行安装验证。
 - 普通 CI 没有 npm 凭据。发布作业使用 npm Trusted Publisher 和 GitHub OIDC，不读取 `NPM_TOKEN`；并发发布被串行化。
 
 ### 通过 tag 发布
@@ -58,11 +58,11 @@ git push origin "v$VERSION"
 
 普通 master 推送只执行 CI，不发布 npm。不要移动或复用已推送的发布 tag；Git tag `v<版本号>` 触发工作流，npm dist-tag `latest` 决定默认安装版本，两者不同。
 
-包已发布但后续验收失败时，在 Actions 手动选择原版本 tag、填写相同版本并启用 `verify_only`。该模式仍执行验证门禁和公开安装验收，跳过上传；不要直接重跑上传作业。安装验收从本地 tarball 读取版本，`--registry` 模式必须提供 `EXPECTED_VERSION`，工作流会自动传入。
+两个包分别发布，不保证原子完成。某个包未发布时，核对 registry 后手动选择 master 或包含该发布流程的版本 tag，填写相同版本并选择未发布的包；已发布包需要复验时选择该包并启用 `verify_only`，跳过上传。不要重新上传已存在版本。服务包安装验收从本地 tarball 读取版本，`--registry` 模式必须提供 `EXPECTED_VERSION`，工作流会自动传入。
 
 首次启用前，由维护者完成以下配置：
 1. 创建 GitHub Environment **npm**，只允许 master 分支及 `v*` tag 部署；按仓库需要配置审核人。用 tag ruleset 限制发布 tag 的创建、更新和删除，仅仓库管理员可绕过。工作流中的 environment 名称本身**不自动创建审核保护**。
-2. 在 npm 包的 Trusted Publisher 设置中授权 GitHub 仓库 `realqiyan/task-conductor`、工作流 `publish.yml`、Environment `npm`，允许 `npm publish`。认证与 2FA 在 npm 官方界面完成，不上传本机登录凭据。
+2. 在两个 npm 包各自的 Trusted Publisher 设置中授权 GitHub 仓库 `realqiyan/task-conductor`、工作流 `publish.yml`、Environment `npm`，允许 `npm publish`。认证与 2FA 在 npm 官方界面完成，不上传本机登录凭据。
 3. 核查 master 与工作流修改权限，再推送版本 tag；需要手动发起时，在 Actions 选择 Publish npm 并输入已验收的版本。认证/权限失败须停止，不能换账号或跳过验证。
 
 发布作业使用 Node 24 与支持 OIDC 的 npm；命令明确传 `--tag latest --access public --provenance`。Trusted Publisher 授权和 provenance 是不同条件，设置工作流不等于 npm 已授权。首次配置和有效期限制以 [npm 官方说明](https://docs.npmjs.com/trusted-publishers/)为准。

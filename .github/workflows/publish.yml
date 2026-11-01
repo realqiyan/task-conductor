@@ -9,6 +9,14 @@ on:
         description: "Exact reviewed package version; publishes with latest"
         required: true
         type: string
+      package:
+        description: "Package to publish or verify"
+        type: choice
+        options:
+          - both
+          - service
+          - plugin
+        default: both
       verify_only:
         description: "Verify an already published version without uploading again"
         type: boolean
@@ -46,6 +54,7 @@ jobs:
     uses: ./.github/workflows/ci.yml
 
   publish:
+    if: github.event_name == 'push' || inputs.package == 'both' || inputs.package == 'service'
     needs: [preflight, validate]
     runs-on: ubuntu-latest
     environment: npm
@@ -92,3 +101,58 @@ jobs:
           EXPECTED_VERSION: ${{ needs.preflight.outputs.version }}
         run: |
           node scripts/verify-install.mjs --registry
+
+  publish-plugin:
+    if: github.event_name == 'push' || inputs.package == 'both' || inputs.package == 'plugin'
+    needs: [preflight, validate]
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-plugin-candidate
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.x"
+          registry-url: https://registry.npmjs.org
+      - name: Check reviewed plugin artifact and publication state
+        env:
+          EXPECTED_VERSION: ${{ needs.preflight.outputs.version }}
+          VERIFY_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.verify_only }}
+        run: |
+          node --input-type=module <<'JS'
+          import { readdirSync } from "node:fs";
+          import { execFileSync } from "node:child_process";
+          import assert from "node:assert/strict";
+          const files = readdirSync(".").filter(file => /^task-conductor-plugin-.*\.tgz$/.test(file));
+          assert.equal(files.length, 1);
+          const pkg = JSON.parse(execFileSync("tar", ["-xOf", files[0], "package/package.json"], { encoding: "utf8" }));
+          assert.equal(pkg.name, "task-conductor-plugin");
+          assert.equal(pkg.version, process.env.EXPECTED_VERSION);
+          assert.equal(pkg.license, "MIT");
+          assert.equal(pkg.publishConfig.tag, "latest");
+          if (process.env.VERIFY_ONLY !== "true") {
+            const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(pkg.name)}/${encodeURIComponent(pkg.version)}`, {
+              signal: AbortSignal.timeout(15000),
+            });
+            assert.equal(response.status, 404, "Version exists or registry state is unavailable; do not upload again");
+          }
+          JS
+      - name: Publish reviewed plugin with npm trusted publishing
+        if: github.event_name == 'push' || !inputs.verify_only
+        run: npm publish task-conductor-plugin-*.tgz --ignore-scripts --access public --tag latest --provenance --registry=https://registry.npmjs.org
+      - name: Verify public plugin latest and installation
+        env:
+          EXPECTED_VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          for attempt in $(seq 1 12); do
+            if [ "$(npm view task-conductor-plugin dist-tags.latest --registry=https://registry.npmjs.org)" = "$EXPECTED_VERSION" ]; then break; fi
+            sleep 10
+          done
+          test "$(npm view task-conductor-plugin dist-tags.latest --registry=https://registry.npmjs.org)" = "$EXPECTED_VERSION"
+          install_dir=$(mktemp -d)
+          npm install --prefix "$install_dir" --ignore-scripts --no-audit --no-fund task-conductor-plugin --registry=https://registry.npmjs.org
+          node -e 'const p = require(process.argv[1]); if (p.name !== "task-conductor-plugin" || p.version !== process.env.EXPECTED_VERSION) process.exit(1)' "$install_dir/node_modules/task-conductor-plugin/package.json"
