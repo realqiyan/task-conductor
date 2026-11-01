@@ -56,6 +56,8 @@ test("a turn ending with a question is not a DAG delivery; only accepted excerpt
   assert.equal(f.service.runs.get(run.id).nodes[0].resultFile, null);
   await assert.rejects(f.service.supervisor.converse(run.id, "B"), /Dependencies/);
   assert.throws(() => f.service.supervisor.actions(run.id).finish("Finished"), /accepted/);
+  await assert.rejects(f.service.supervisor.actions(run.id).accept("A", 0, "", "已有输出尚未验收", true), /previously accepted/);
+  assert.deepEqual(f.service.runs.get(run.id), run);
   await assert.rejects(f.service.supervisor.actions(run.id).accept("A", 1, "Invented answer", "complete"), /exact excerpt/);
   // A later, complete turn is selected explicitly; the earlier question stays only in the transcript.
   a.turns.push({ prompt: "Use source X", output: "Progress.\nSource X contains 3 records.\nDone.", stopReason: "end_turn", sessionId: null, inputDeliveries: [], messageIds: [], contextMessageIds: [] });

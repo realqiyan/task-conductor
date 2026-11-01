@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { createTaskRuntime } from "../dist/application/task-runtime.js";
 import { createExecution } from "../dist/integrations/acp/execution.js";
-import { coordinatorToolBatchError, createCoordinator } from "../dist/integrations/coordinator/coordinator.js";
+import { coordinatorToolBatchError, createCoordinator, deliveryAcceptParameters, deliveryReuseParameters } from "../dist/integrations/coordinator/coordinator.js";
 import { TaskStore } from "../dist/tasks/storage/store.js";
 import { NodeSessions } from "../dist/tasks/sessions.js";
 import { taskSchema } from "../dist/protocol/task-contract.js";
@@ -51,6 +51,33 @@ function observed(f, message) {
   f.store.saveMessages([{ ...message, status: "submitted", submissionId: "1" }]);
   f.service.runs.observe(f.task.id, message.runId, [message.id]);
 }
+
+test("交付工具契约要求完整的新交付参数，并将复用参数独立校验", () => {
+  const validate = (name, parameters, args) => validateToolArguments({ name, description: "", parameters },
+    { type: "toolCall", id: "delivery-contract", name, arguments: args });
+  const accept = args => validate("node_delivery_accept", deliveryAcceptParameters, args);
+  const reuse = args => validate("node_delivery_reuse", deliveryReuseParameters, args);
+  const delivery = { nodeId: "A", turn: 1, result: "执行端原文", reason: "内容满足节点要求" };
+  assert.deepEqual(accept(delivery), delivery);
+  const reviewed = { ...delivery, reviewedMessageIds: [randomUUID()] };
+  assert.deepEqual(accept(reviewed), reviewed);
+  for (const key of ["nodeId", "turn", "result", "reason"]) {
+    const incomplete = { ...delivery };
+    delete incomplete[key];
+    assert.throws(() => accept(incomplete), new RegExp(key));
+  }
+  for (const args of [{ ...delivery, turn: 0 }, { ...delivery, result: "" },
+    { ...delivery, reuse: true }, { ...delivery, reuse: false },
+    { nodeId: "A", reuse: true, reason: "复用" }]) assert.throws(() => accept(args));
+
+  const revalidation = { nodeId: "A", reason: "原交付仍满足当前事实与依赖" };
+  assert.deepEqual(reuse(revalidation), revalidation);
+  assert.throws(() => reuse({ nodeId: "A" }), /reason/);
+  assert.throws(() => reuse({ reason: "复用" }), /nodeId/);
+  for (const extra of [{ turn: 1 }, { result: "执行端原文" }, { reuse: true }, { reviewedMessageIds: [] }]) {
+    assert.throws(() => reuse({ ...revalidation, ...extra }));
+  }
+});
 
 test("coordinator decisions must be the only call in a batch, regardless of order or sibling validity", () => {
   for (const decision of ["task_question_ask", "run_complete", "run_fail"]) {

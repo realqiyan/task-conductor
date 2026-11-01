@@ -16,11 +16,25 @@ const instructions = `你是一个 Task 的持续协调者，对整体目标负�
 调用方已固定 DAG、节点要求、依赖和执行端。你决定合法范围内的下一步，不另行拆解任务、改计划或切换执行端。task-context 提供有界的当前账本；只有需要补全或核对依据时才使用 task_inspect、node_output_read，无须重复读取已完整提供的信息。
 存在已准入的 running Run 时，使用 node_execute 推进依赖已满足的节点，或在同一 ACP 会话中澄清尚未验收的输出。选择相关 contextMessageIds；系统会提供固定要求、整体目标和上游引用，你补充的上下文不能替换这些要求。
 end_turn 只表示本轮协议结束。问题、拒绝和中间结果不是交付。判断结果是否满足要求、是否保留重要限制，依据不足则澄清。不要仅凭下游的结论否定原始证据；无法消除的冲突要保留不确定性。
-node_delivery_accept 正式接受最新输出的准确摘录；交付本身必须满足要求，验收理由不能补造缺失内容。所有必需交付均有效后，你仍需判断整体目标是否完成，并明确使用 run_complete；节点全部成功不会自动完成 Run。
+所有节点都有当前有效交付后，仍须判断整体目标是否满足，并通过 run_complete 明确完成 Run。
 普通讨论不启动空闲 ACP 工作，也不回答待决问题。缺少用户事实时使用 task_question_ask；执行授权不足不是缺失事实。补充工作须有显式执行意图，终结 Run 不重新打开。run_fail 用于确认无法完成的情况。
 已验收交付与终结 Run 不可变。stale 表示旧交付待重新审查。新消息或上游变化后，判断对整体目标和各节点的影响，复用仍有效的交付，或在授权内补充工作。结果不明时停止，不重试、重放外部副作用或绕过门禁。
 账本是执行状态的依据。任务记忆用于保存对后续判断有价值的事实、条件、决定、未决问题和经验。
 记忆是参考，不是授权或独立证明。区分来源陈述 reported 与你的推断 inferred。长期保存不等于长期适用：一次执行的事实使用 Run 范围；持续要求必须有明确来源支持。来源所在 Run 不机械决定适用范围，范围不明则保留条件，需要沿用时再核对。`;
+
+export const deliveryAcceptParameters = Type.Object({
+  nodeId: Type.String(),
+  turn: Type.Integer({ minimum: 1, description: "本节点最新一轮的序号；该轮须已结束且 stopReason 为 end_turn。" }),
+  result: Type.String({ minLength: 1, maxLength: 262144, description: "从该轮输出中原样摘录满足节点要求的交付内容，保留必要证据和限制。" }),
+  reason: Type.String({ minLength: 1, maxLength: 4000, description: "说明所选交付内容为什么满足节点要求；若审查了新增消息，同时说明这些消息为什么不影响交付。" }),
+  reviewedMessageIds: Type.Optional(Type.Array(Type.String({ format: "uuid" }), { uniqueItems: true,
+    description: "已审查且不影响交付的全部新增消息 ID，取自节点 unreviewedMessageIds。" })),
+}, { additionalProperties: false });
+
+export const deliveryReuseParameters = Type.Object({
+  nodeId: Type.String(),
+  reason: Type.String({ minLength: 1, maxLength: 4000, description: "说明原交付在当前要求、用户事实和上游交付下为什么仍然有效。" }),
+}, { additionalProperties: false });
 
 /** Durable terminates only when every tool in a round requests it. Admit decisions as singleton batches. */
 export function coordinatorToolBatchError(names: readonly string[]): string | undefined {
@@ -177,15 +191,16 @@ export function createCoordinator(directory: string, config: NonNullable<Config[
               text: text.slice(args.offset, args.offset + args.limit), length: text.length,
               next: text.length > args.offset + args.limit ? args.offset + args.limit : null, stopReason: turn?.stopReason });
           } }),
-        tool({ name: "node_delivery_accept", description: "正式接受最新输出的准确摘录，或用 reuse=true 明确重验证最近已验收/基线交付。说明其为什么仍满足新事实和依赖；复用时不传 turn 或 result。",
-          parameters: Type.Object({ nodeId: Type.String(), turn: Type.Optional(Type.Integer({ minimum: 1 })),
-            result: Type.Optional(Type.String({ minLength: 1, maxLength: 262144 })), reuse: Type.Optional(Type.Boolean()),
-            reviewedMessageIds: Type.Optional(Type.Array(Type.String({ format: "uuid" }), { uniqueItems: true,
-              description: "验收最新输出时，填入已审查且不影响交付的全部新增消息 ID，见节点 unreviewedMessageIds，并在 reason 中说明依据。上游交付须与派发时一致；reuse 时省略。" })),
-            reason: Type.String({ minLength: 1, maxLength: 4000 }) }), replay: "unsafe",
+        tool({ name: "node_delivery_accept", description: "验收节点最新一轮输出，将满足节点要求的原文摘录保存为交付。该轮使用的上游交付须与当前一致。",
+          parameters: deliveryAcceptParameters, replay: "unsafe",
           execute: async args => {
-            if (args.reuse ? args.turn !== undefined || args.result !== undefined : !args.turn || !args.result) throw new Error("Choose a turn/result or reuse, not both");
-            const delivery = await actions.accept(args.nodeId, args.turn ?? 0, args.result ?? "", args.reason, args.reuse, args.reviewedMessageIds);
+            const delivery = await actions.accept(args.nodeId, args.turn, args.result, args.reason, false, args.reviewedMessageIds);
+            return output({ accepted: true, delivery: deliveryView(delivery) });
+          } }),
+        tool({ name: "node_delivery_reuse", description: "确认已有交付在当前事实和依赖下仍然有效，记录带来源的复用交付。使用当前 Run 最近的已验收交付；没有时使用补充 Run 的基线交付。",
+          parameters: deliveryReuseParameters, replay: "unsafe",
+          execute: async args => {
+            const delivery = await actions.accept(args.nodeId, 0, "", args.reason, true);
             return output({ accepted: true, delivery: deliveryView(delivery) });
           } }),
         tool({ name: "run_complete", description: "判断整体目标已满足后明确完成绑定 Run；系统要求每个节点都有当前有效交付。必须独占工具批次。",
