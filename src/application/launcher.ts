@@ -22,12 +22,14 @@ function message(child: ChildProcess, type: string, timeout = 30_000): Promise<M
     child.on("message", receive); child.once("exit", exit); child.once("error", fail);
   });
 }
-async function stop(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  const closed = new Promise<void>(resolve => child.once("close", () => resolve()));
-  child.kill("SIGTERM");
-  const timer = setTimeout(() => child.kill("SIGKILL"), 12_000);
-  try { await closed; } finally { clearTimeout(timer); }
+async function stop(child: ChildProcess, verifyExit = false): Promise<void> {
+  if (child.exitCode === null && child.signalCode === null) {
+    const closed = new Promise<void>(resolve => child.once("close", () => resolve()));
+    child.kill("SIGTERM");
+    const timer = setTimeout(() => child.kill("SIGKILL"), 12_000);
+    try { await closed; } finally { clearTimeout(timer); }
+  }
+  if (verifyExit && child.exitCode !== 0) throw new Error(`服务未正常退出：${child.signalCode ?? child.exitCode}`);
 }
 async function health(ready: Ready, token: string): Promise<void> {
   const response = await fetch(ready.url, {
@@ -58,7 +60,7 @@ export async function launch(home: string, nativeEnvironment: NodeJS.ProcessEnv)
   const unlock = await acquireLauncherLock(home);
   const socket = join(home, "control.sock"), children = new Set<ChildProcess>();
   let current: ChildProcess | undefined, ready: { info: Ready; token: string } | undefined, restarting = true, closing = false;
-  let shutting: Promise<void> | undefined;
+  let shutting: Promise<void> | undefined, shutdownFailure: Error | undefined;
   let release!: () => void;
   const finished = new Promise<void>(resolve => { release = resolve; });
   const control = createServer(async (req, res) => {
@@ -66,6 +68,7 @@ export async function launch(home: string, nativeEnvironment: NodeJS.ProcessEnv)
       if (req.method !== "POST" || !["/status", "/restart", "/stop"].includes(req.url ?? "")) { res.writeHead(404).end(); return; }
       if (req.url === "/stop") {
         await shutdown(true);
+        if (shutdownFailure) throw shutdownFailure;
         res.setHeader("Content-Type", "application/json"); res.setHeader("Connection", "close");
         res.end(JSON.stringify({ stopped: true })); return;
       }
@@ -79,7 +82,9 @@ export async function launch(home: string, nativeEnvironment: NodeJS.ProcessEnv)
     return shutting = (async () => {
       control.close();
       if (!drain) control.closeAllConnections();
-      await Promise.all([...children].map(stop));
+      const outcomes = await Promise.allSettled([...children].map(child => stop(child, drain)));
+      const failed = outcomes.find(outcome => outcome.status === "rejected");
+      if (failed?.status === "rejected") { shutdownFailure = failed.reason; process.exitCode = 1; }
       try { removeSocket(socket); } finally { unlock(); release(); }
     })();
   };

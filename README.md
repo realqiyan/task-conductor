@@ -69,7 +69,7 @@ The loopback-only Web console is available at `/admin/` on the address reported 
 - Prompts, human replies, and workspace selection do not grant tool permissions. Executors use native authorization; additional ACP approval requests are rejected.
 - Interrupted or uncertain external work blocks new dispatch. The service does not automatically retry, replay side effects, or switch executors.
 - Restarting closes ACP sessions and may interrupt Runs awaiting input. Client disconnection, service shutdown, and task cancellation are different operations.
-- Service upgrades require stopping the background service, backing up private data, installing the target package, checking the data format, and reconnecting MCP. Normal startup does not migrate existing data. Follow the [upgrade procedure](docs/upgrades.md).
+- Use `task-conductor update` to update the service package and replace both the launcher and service process. Follow the [upgrade procedure](docs/upgrades.md) for backups, MCP reconnection, and older CLI versions. Data migration remains a separate offline operation.
 - Logs and agent output may contain sensitive information. Local path checks and environment filtering are not an OS sandbox.
 
 ## Documentation
@@ -79,7 +79,7 @@ Detailed operational and design documents are currently in **Chinese**. The Engl
 | Topic | Guide |
 | --- | --- |
 | Installation, authentication, and background service | [Deployment](docs/deployment.md) |
-| Data checks and offline migration | [Upgrades](docs/upgrades.md) |
+| Package updates, data checks, and offline migration | [Upgrades](docs/upgrades.md) |
 | Pi, Claude Code, and Codex integration | [Host integrations](docs/host-integrations.md) |
 | Local console and configuration | [Web console](docs/web-console.md) |
 | CLI configuration, credentials, tasks, and Runs | [CLI](docs/cli.md) |

@@ -14,6 +14,7 @@ function files(directory) {
   });
 }
 const roles = {
+  application: ["application/background.ts"],
   webApp: ["web/app.js"],
   webApi: ["web/api.js"],
   webView: ["web/tasks-view.js", "web/executors-view.js", "web/settings-view.js"],

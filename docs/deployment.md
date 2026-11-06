@@ -76,9 +76,9 @@ stdio 退出只关闭当前连接。由 `mcp` 启动的后台使用独立进程�
 
 独立后台不保证机器关机、系统清理用户进程或后台自身故障后继续运行，也不配置开机自启。再次启动后读取持久任务；已中断且结果不明的执行保持阻断，不自动重试、重放或改派。
 
-`restart` 与 Web 的重启入口使用同一启动器，应用已保存配置。只有新实例通过带 MCP token 的健康检查才返回成功，并给出实例标识及地址。端口变化时以该地址为准。重启关闭 ACP 会话，不保证等待人工回复的运行能无损继续。请求超时先用 `status` 核对，不盲目重复操作。
+`restart` 与 Web 的重启入口使用同一启动器，仅重启服务子进程以应用已保存配置，不替换 launcher 或宿主 stdio 进程。只有新实例通过带 MCP token 的健康检查才返回成功，并给出实例标识及地址。端口变化时以该地址为准。重启关闭 ACP 会话，不保证等待人工回复的运行能无损继续。请求超时先用 `status` 核对，不盲目重复操作。
 
-服务包升级须完整停止后台、备份、安装，再由宿主重新建立 MCP 连接；仅宿主重连会复用旧后台，仅 `restart` 不更新 launcher 或宿主 stdio 进程。完整操作见[升级引导](../plugin/skills/using-task-conductor/references/installation.md#升级已有服务)。`task-conductor status` 显示安装、launcher 和服务版本及是否需要重启；MCP `service_status` 显示后台启动版本。缺少版本信息保持未知；同版本覆盖安装不能靠版本号识别。契约见 [CLI](../src/protocol/cli/commands.ts) 和 [MCP](../src/protocol/mcp-contract.ts)。
+服务包更新使用 `task-conductor update`；支持范围、停服备份、失败处理和宿主重连统一见[升级说明](upgrades.md)，旧版须先核对命令支持。`task-conductor status` 显示安装、launcher 和服务版本及是否需要重启；MCP `service_status` 显示后台启动版本。缺少版本信息保持未知。契约见 [CLI](../src/protocol/cli/commands.ts) 和 [MCP](../src/protocol/mcp-contract.ts)。
 
 MCP 接入不会自动重启一个已存在但不可用的后台。故障时查看安装目录的 `launcher.log` 和当前数据目录的 `service.log`；修正私有启动文件后显式重启，启动器已退出时重新连接或运行 `start`。启动失败不会回滚配置或重放工作。
 
@@ -92,6 +92,6 @@ Web 访问 `status` 返回地址同源的 `/admin/`，连接与令牌保护见[�
 
 `task-conductor setup --check --json`（自定义安装附加相同 `--home`）只读检查初始化状态，不启动后台、不写锁或修复文件。它不验证模型登录、执行端授权或实时 MCP 健康；摘要契约见 [setup](../scripts/setup.mjs)。
 
-重复 setup 保留已有配置。初始化中断后须显式执行 `setup --resume`，它只接续已保存且一致的初始化文件；缺少凭据或所有权不明时停止核查，不猜测修复。更新前停止后台并备份安装目录和数据目录。数据格式以 `0.1.0` 为基线；安装目标包后先执行[离线升级检查](upgrades.md)，再重连。普通启动不迁移历史；缺表、未知或损坏的数据拒绝使用，不通过删除历史、手工补表或重放任务修复。
+重复 setup 保留已有配置。初始化中断后须显式执行 `setup --resume`，它只接续已保存且一致的初始化文件；缺少凭据或所有权不明时停止核查，不猜测修复。数据格式检查与显式迁移见[升级说明](upgrades.md#离线数据迁移)。普通启动不迁移历史；缺表、未知或损坏的数据拒绝使用，不通过删除历史、手工补表或重放任务修复。
 
 源码开发者执行 `npm ci --ignore-scripts && npm run build` 后，可用 `node bin/task-conductor.mjs setup`、`node bin/task-conductor.mjs mcp` 或 `npm start -- --home ...`。内部 `dist/application/main.js` 不是独立的重启入口。

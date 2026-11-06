@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 
 const help = `用法：task-conductor <命令>
   setup [选项]              交互式初始化；参数见 setup --help
+  update [选项]             更新 npm 安装并完整重启后台；参数见 update --help
   migrate [选项]            离线数据升级、备份与续接；参数见 migrate --help
   mcp [--home 目录]         建立 MCP stdio 连接，启动或复用共享后台
   start [--home 目录]       在前台运行服务
@@ -27,7 +28,7 @@ try {
     console.log(help);
   } else if (command === "--version") {
     console.log(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version);
-  } else if (command === "setup" || command === "migrate") {
+  } else if (["setup", "migrate", "update"].includes(command)) {
     process.argv = [process.execPath, command, ...args];
     await import(`../scripts/${command}.mjs`);
   } else {

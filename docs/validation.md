@@ -75,9 +75,9 @@ git diff --check
 
 ### 已验证结论
 
-`0.1.3` 基线（`610b3b5`）上的提示词精简及验收反馈调整工作树，macOS、Node 24.22.2、Pi 1.5.0、pi-acp 0.0.34，协调者与隔离原生 Pi 均使用 DeepSeek `deepseek-flash`：三组真实 E2E 各运行一次全部通过。单节点使用 3/6 次协调模型请求；三节点问答（测试数量 4）使用 11/18 次，确认同一 ACP 会话两轮澄清、上游不重放及下游实际读取；持续对话的初始与补充 Run 分别使用 7/25、5/25 次，验证普通讨论与执行隔离、模型写入记忆并在空闲重启后读取、补充交付与下游复核、旧 Run 和旧文件保留。原生会话记录确认四次 read 调用成功；九个 SDK 输入均为 done，服务正常退出，无未终结 SDK 任务，临时凭据已清理。证据：`/private/tmp/task-conductor-e2e-recheck-jz1Ga3/report.json`，含三组日志、交付、原生读取及工具调用定位。
+`0.1.5` CLI 更新工作树，macOS、Node 24.22.2、Pi 1.5.0、pi-acp 0.0.34，协调者与隔离原生 Pi 均使用 DeepSeek `deepseek-flash`：单节点和持续对话首次通过；三节点问答首次失败，经用户要求原样重跑一次通过。单节点使用 3/6 次协调模型请求；问答 DAG 使用 10/18 次，等待数量时下游保持未执行，回复后同一 Run/ACP 会话完成两轮澄清、上游不重放且下游实际读取；持续对话的初始与补充 Run 分别使用 6/25、5/25 次，验证普通讨论与执行隔离、模型写入记忆并在空闲重启后读取、补充交付与下游复核、旧 Run 和旧文件保留。证据：单节点 `/private/tmp/task-conductor-real-e2e-nkjabG/`、问答 `/private/tmp/task-conductor-real-e2e-OZ86Ys/`、持续对话 `/private/tmp/task-conductor-real-e2e-B245MX/`。服务正常退出，临时凭据已清理；MCP 调用方为测试脚本，未覆盖宿主模型自主使用 skill 和工具创建任务。
 
-此次单节点和持续对话无工具错误；DAG 仍有一次因上游为 stale 而过早派发的拒绝，模型随后重验证并完成。持续对话验收时正确省略 reviewedMessageIds 或传 []，未复现旧参数错误；因此本次通过不证明模型能从新的错误反馈中恢复，也不证明稳定性或改动因果关系。MCP 调用方为测试脚本，未覆盖宿主模型自主使用 skill 和工具创建任务。
+保留首轮三节点失败边界：协调模型验收 source 后，先派发 record 并得到数量澄清，再向用户提问，违反用例“回答前不得启动下游”的要求。`human-dag.test.mjs:56` 观察到 `awaiting_review` 而非 `pending`，测试未提交数量回复。证据：`/private/tmp/task-conductor-real-e2e-h8JBbU/waiting-run.json`、同目录 `messages.json`，以及 `/private/tmp/task-conductor-pi-human-iSwz9U/test-1.log`。此用例直接启动业务运行进程，不经过包更新或 launcher；重跑未修改协调器或 E2E 用例，后续通过不证明模型顺序遵循稳定。
 
 保留参数误用的失败边界：同一环境在验收反馈调整前，持续对话初始 Run 使用 15/25 次模型请求后失败；模型在 unreviewedMessageIds=[] 时填入派发前已有消息，六次验收被拒，三个正确 ACP 输出仍未形成交付。回答早于首轮派发且之后没有新输入，失败发生在内容断言之前，不是测试时序或格式要求造成。证据：`/private/tmp/task-conductor-prompt-e2e-audit-fBw5k1/report.json`。当前[验收实现](../src/tasks/runs.ts)区分参数误填与事实变化，[工具契约](../src/integrations/coordinator/coordinator.ts)明确新增消息范围与空列表语义；[业务回归](../tests/task-conversations.test.mjs)验证修正参数即可验收原输出，同时继续拒绝遗漏消息、失效依据和上游变化。
 
@@ -124,6 +124,8 @@ Linux x64、Node 24.15.0 的隔离环境证据：
 ## npm 发布候选验证
 
 发布与安装操作由[发布说明](release.md)维护。此处只保留有适用范围的证据，不逐版记录发布过程。
+
+`0.1.5` CLI 更新工作树，macOS ARM64、Node 24.22.2、npm 11.19.1：[更新测试](../tests/update.test.mjs)在隔离 prefix 中从本地候选 tarball 更新到 npmjs 的 `latest`，验证完整替换 launcher/服务、同版本重启、原已停服时启动、配置与终结历史保留、待迁移数据阻止启动，以及 prefix 不符、真实 npm 离线失败和端口占用时不误报成功。真实进程回归另验证 SIGTERM 中断时先回收 npm 再释放锁、异常停服阻止安装，以及包目录内私有 home/dataDir 在安装前被拒绝。联网验收需显式设置 `TASK_CONDUCTOR_UPDATE_REGISTRY=https://registry.npmjs.org`，默认测试跳过；不调用模型或执行 ACP 工作。启用联网和原生 Pi 后，基础测试 108 项通过，仅 PTY 用例因 `tcgetattr/ioctl: Operation not supported on socket` 跳过；三组模型 E2E 的独立结果见[真实模型结论](#已验证结论)。未验证 Linux、更新进程被 SIGKILL、安装磁盘写入期间中断及跨数据格式转换。候选 tarball 的独立安装、Web/CLI 重启与 MCP 后台检查通过，报告：`/private/tmp/task-conductor-npm-RzpriH/report.json`；本轮结论与证据入口：`/private/tmp/task-conductor-update-review-MT1k33/report.json`。
 
 | 范围 | 结论 | 证据 |
 | --- | --- | --- |

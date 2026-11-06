@@ -11,7 +11,7 @@
 | 目的 | 入口 |
 | --- | --- |
 | 安装、配置、运行 | [部署说明](docs/deployment.md) |
-| 数据格式检查与离线迁移 | [升级说明](docs/upgrades.md) |
+| 服务包更新、数据检查与离线迁移 | [升级说明](docs/upgrades.md) |
 | Pi、Claude Code、Codex 接入包与 using-task-conductor 使用引导 | [宿主接入](docs/host-integrations.md) |
 | 本机控制台、配置保存与 Web/CLI 重启 | [控制台说明](docs/web-console.md) |
 | 命令行配置、凭据和任务管理 | [CLI 说明](docs/cli.md) |
@@ -63,7 +63,7 @@ setup 确认本机配置；MCP 连接自动启动或复用独立后台，宿主�
 
 完整命令与参数使用 `task-conductor --help`、`task-conductor <命令> --help` 查询，不在文档中维护副本。
 
-- 安装与运行：`setup`、`mcp`、`start`、`stop`、`restart`、`status`，见[部署说明](docs/deployment.md)；离线升级使用 `migrate`，见[升级说明](docs/upgrades.md)。
+- 安装与运行：`setup`、`mcp`、`start`、`stop`、`restart`、`status`，见[部署说明](docs/deployment.md)；服务包更新使用 `update`，数据迁移使用 `migrate`，见[升级说明](docs/upgrades.md)。
 - 配置与凭据：`config`、`executor`、`coordinator`、`credential`；任务与运行：`task`、`run`，见 [CLI 说明](docs/cli.md)。
 
 ## 运行与安全边界
@@ -73,7 +73,7 @@ setup 确认本机配置；MCP 连接自动启动或复用独立后台，宿主�
 - 外部工作中断或结果不明时阻止新派发，不自动重试、重放副作用或切换执行端。
 - 沿用执行端原生授权，拒绝额外 ACP 审批请求。目录校验和环境过滤不是 OS 沙箱；日志和 Agent 输出可能敏感。
 - `task-conductor stop` 停止后台及活动执行；重启关闭 ACP 会话，可能中断待回答 Run。客户端断开不等于停服或取消任务。
-- 升级服务前停止后台、备份私有数据、安装目标包、检查数据格式，再重新连接 MCP；正常启动不迁移历史。见[升级说明](docs/upgrades.md)。
+- 服务更新的前置检查、备份、宿主重连和旧版入口统一见[升级说明](docs/upgrades.md)。`update` 不更新插件或执行端，不自动迁移数据；`restart` 仅重启服务子进程以应用配置。
 
 ## 开发
 
