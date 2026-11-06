@@ -3,31 +3,55 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Task Conductor 控制台</title>
+  <meta name="color-scheme" content="light">
+  <title>Task Conductor · 控制台</title>
   <link rel="stylesheet" href="/admin/style.css">
   <script type="module" src="/admin/app.js"></script>
 </head>
 <body>
-  <header>
-    <h1>Task Conductor</h1>
-    <p>本机管理控制台 · 配置保存后须手动重启</p>
-    <form id="login" autocomplete="off">
-      <label>管理员令牌
-        <input id="token" type="password" required maxlength="256" autocomplete="off" spellcheck="false">
-      </label>
-      <button type="submit">连接</button>
-      <p class="hint">使用独立的 TASK_CONDUCTOR_ADMIN_TOKEN，不是 MCP token。令牌只保存在当前页面内存中。</p>
-    </form>
-    <nav id="navigation" hidden>
-      <button id="tasks" type="button">任务</button>
-      <button id="settings" type="button">配置</button>
-      <button id="refresh" type="button">刷新</button>
-      <button id="logout" type="button">退出</button>
+  <a class="skip-link" href="#view">跳到主要内容</a>
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">TC</span><div><strong>Task Conductor</strong><span>任务管理控制台</span></div></div>
+    <nav id="navigation" aria-label="主导航" hidden>
+      <a href="#tasks" data-route="tasks"><span class="nav-symbol" aria-hidden="true">▤</span>任务</a>
+      <a href="#executors" data-route="executors"><span class="nav-symbol" aria-hidden="true">◇</span>执行端</a>
+      <a href="#settings" data-route="settings"><span class="nav-symbol" aria-hidden="true">⚙</span>设置<span id="pending" class="nav-dot" aria-hidden="true" title="有变更待重启" hidden></span></a>
     </nav>
-    <p id="status" role="status"></p>
-  </header>
-  <p id="notice" role="alert"></p>
-  <main id="view"></main>
-  <noscript>控制台需要 JavaScript；没有加载任何第三方脚本。</noscript>
+    <div class="sidebar-footer">
+      <span id="service-status" class="badge neutral" role="status">尚未连接</span>
+      <dl id="runtime" class="runtime" hidden><div><dt>活动协调</dt><dd id="active-runs">0</dd></div><div><dt>ACP 会话</dt><dd id="active-sessions">0</dd></div></dl>
+      <span class="local-label">本机服务 · 127.0.0.1</span>
+    </div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar">
+      <span id="location">本机控制台</span>
+      <div id="toolbar" class="actions" hidden>
+        <span id="updated" class="hint"></span>
+        <button id="refresh" type="button" class="quiet">刷新</button>
+        <span class="divider" aria-hidden="true"></span>
+        <button id="logout" type="button" class="quiet">退出</button>
+      </div>
+    </header>
+    <div class="content">
+      <div id="notice" class="notice" role="status" hidden><span id="notice-text"></span><button id="dismiss" type="button" class="quiet" aria-label="关闭提示">×</button></div>
+      <section id="welcome" class="welcome" aria-labelledby="welcome-title">
+        <span class="eyebrow">TASK CONDUCTOR</span>
+        <h1 id="welcome-title">任务持续推进，<br>进展清晰可见。</h1>
+        <p class="welcome-description">查看任务与交付，管理本机执行端和服务配置。</p>
+        <form id="login" class="panel login-card" autocomplete="off">
+          <h2>连接控制台</h2>
+          <label for="token">管理员令牌</label>
+          <input id="token" type="password" required maxlength="256" autocomplete="off" spellcheck="false" placeholder="输入管理员令牌" aria-describedby="token-hint">
+          <p id="token-hint" class="hint">令牌仅在本页使用，刷新或退出后清除。</p>
+          <button type="submit" class="primary">连接</button>
+          <details><summary>在哪里找到令牌？</summary><p class="hint">从数据目录的 environment.json 读取 TASK_CONDUCTOR_ADMIN_TOKEN。请使用管理员令牌，MCP 令牌无法登录。</p></details>
+        </form>
+        <div id="reconnect"></div>
+      </section>
+      <main id="view" tabindex="-1" hidden></main>
+      <noscript><p class="notice">请启用 JavaScript 后使用控制台。</p></noscript>
+    </div>
+  </div>
 </body>
 </html>

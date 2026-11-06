@@ -6,10 +6,18 @@ import ts from "typescript";
 
 const root = fileURLToPath(new URL("../src/", import.meta.url));
 function files(directory) {
-  return readdirSync(directory, { withFileTypes: true }).flatMap(entry => entry.isDirectory()
-    ? files(join(directory, entry.name)) : entry.name.endsWith(".ts") ? [join(directory, entry.name)] : []);
+  return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return files(path);
+    const browser = relative(root, path).replaceAll("\\", "/").startsWith("web/") && entry.name.endsWith(".js");
+    return entry.name.endsWith(".ts") || browser ? [path] : [];
+  });
 }
 const roles = {
+  webApp: ["web/app.js"],
+  webApi: ["web/api.js"],
+  webView: ["web/tasks-view.js", "web/executors-view.js", "web/settings-view.js"],
+  webComponent: ["web/dom.js", "web/settings-fields.js", "web/credentials-view.js"],
   model: ["tasks/model.ts", "executors/model.ts", "configuration/model.ts"],
   port: ["tasks/ports.ts", "configuration/ports.ts", "results/ports.ts", "executors/ports.ts"],
   rule: ["shared/time.ts", "shared/limits.ts", "shared/errors.ts", "tasks/graph.ts", "tasks/execution-context.ts", "tasks/schedule.ts", "tasks/cron.ts", "tasks/human-input.ts",
@@ -25,6 +33,7 @@ function role(path) {
   throw new Error("Unclassified source; declare its responsibility: " + path);
 }
 const allowed = {
+  webApp: ["webApi", "webView", "webComponent"], webApi: [], webView: ["webComponent"], webComponent: ["webComponent"],
   model: ["model"], port: ["model", "port"], rule: ["model", "rule"], schema: ["model", "rule", "schema"],
   service: ["model", "port", "rule", "schema", "service"],
   storage: ["model", "port", "rule", "schema", "storage", "infrastructure"],
@@ -43,6 +52,7 @@ const adapterEdges = new Set([
   "protocol/stdio.ts -> infrastructure/version.ts",
 ]);
 const modules = {
+  web: ["web"],
   shared: ["shared"], tasks: ["tasks", "executors", "shared"],
   executors: ["executors", "configuration", "shared"],
   configuration: ["configuration", "executors", "shared", "infrastructure"],
@@ -65,7 +75,8 @@ function dependency(source, specifier, typeOnly = false) {
     }
     return;
   }
-  const target = relative(root, resolve(root, dirname(source), specifier)).replaceAll("\\", "/").replace(/\.js$/, ".ts");
+  const resolved = relative(root, resolve(root, dirname(source), specifier)).replaceAll("\\", "/");
+  const target = graph.has(resolved) ? resolved : resolved.replace(/\.js$/, ".ts");
   if (!graph.has(target)) { errors.push("Unresolved source dependency: " + source + " -> " + specifier); return; }
   graph.get(source).add(target);
   const edge = source + " -> " + target;
@@ -113,4 +124,4 @@ function visit(path) {
 }
 for (const path of paths) visit(path);
 if (errors.length) { console.error(errors.join("\n")); process.exitCode = 1; }
-else console.log("Dependency boundaries OK (" + paths.length + " TypeScript modules; type and runtime edges checked)");
+else console.log("Dependency boundaries OK (" + paths.length + " source modules; type and runtime edges checked)");

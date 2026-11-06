@@ -39,6 +39,19 @@ Task 输入与相关 Run 决策在业务库中提交；SDK inbox 和 Document �
 
 检查器约束源码依赖，不是权限沙箱，也不证明运行时副作用安全。真实模型和执行端的证据边界见[验证说明](validation.md)。
 
+## Web 模块
+
+控制台使用原生 ES modules，不引入前端运行时或全局状态容器。依赖方向为应用装配 → 页面 → 展示组件；API 客户端只由应用装配持有，页面之间不互相引用。
+
+| 职责 | 入口 |
+| --- | --- |
+| 连接、路由、提示、页面生命周期与状态轮询 | [app.js](../src/web/app.js) |
+| 内存令牌、HTTP 请求、取消与错误转换 | [api.js](../src/web/api.js) |
+| 任务浏览、执行端管理、设置编辑及各自状态 | [tasks-view.js](../src/web/tasks-view.js)、[executors-view.js](../src/web/executors-view.js)、[settings-view.js](../src/web/settings-view.js) |
+| 通用 DOM 组件、配置字段、密钥编辑 | [dom.js](../src/web/dom.js)、[settings-fields.js](../src/web/settings-fields.js)、[credentials-view.js](../src/web/credentials-view.js) |
+
+应用向页面显式传入请求、导航、反馈与取消信号；页面离开时取消请求和定时器，过期响应不替换当前页面。设置页统一持有编辑版本，子组件通过回调保存；预览在编辑或凭据保存后失效。业务规则仍由共享管理服务执行，前端不复制授权或调度决定。上述模块分层与循环由依赖检查器约束。
+
 ## 资源所有权
 
 | 资源 | 创建与关闭责任 |

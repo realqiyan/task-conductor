@@ -1,83 +1,111 @@
-import { request } from "./api.js";
-import { element, table, button, block, notice, time } from "./dom.js";
+import { element, group, heading, panel, empty, badge, stack, table, facts, block, disclosure, time } from "./dom.js";
 
-function paging(root, page, state, navigate) {
-  const actions = element("div"); actions.className = "actions";
-  actions.append(button("上一页", () => navigate({ ...state, after: Math.max(0, state.after - 20) }), state.after === 0),
-    button("下一页", () => navigate({ ...state, after: page.next }), page.next === null));
-  root.append(actions);
+const statuses = {
+  active: ["已启用", "good"], paused: ["已暂停", "warn"], completed: ["触发结束", "neutral"], expired: ["已到期", "neutral"],
+  cancelled: ["已取消", "neutral"], running: ["运行中", "info"], succeeded: ["已完成", "good"], failed: ["失败", "bad"],
+  interrupted: ["已中断", "bad"], skipped: ["已跳过", "neutral"], timed_out: ["已超时", "bad"], waiting_input: ["待回答", "warn"],
+  pending: ["待执行", "neutral"], awaiting_review: ["待验收", "warn"], stale: ["待复核", "warn"], blocked: ["已阻塞", "bad"],
+};
+const status = value => badge(...(statuses[value] ?? [value, "neutral"]));
+function schedule(value) {
+  if (value.type === "now") return stack("立即执行", "单次");
+  if (value.type === "once") return stack("定时执行", time(value.at));
+  return stack("周期执行", value.expression + " · " + value.timezone);
 }
-export async function renderTasks(root, state, navigate) {
-  if (state.kind === "tasks") {
-    const page = await request("/tasks?after=" + state.after);
-    root.append(element("h2", "任务"), element("p", "触发计划状态不等于运行结果；空闲页面每 10 秒刷新，交互时可手动刷新。"),
-      table(["任务", "触发计划状态", "计划", "下次触发"], page.items.map(task => [
-        button(task.name, () => navigate({ kind: "task", id: task.id, after: 0 })),
-        task.scheduleStatus, JSON.stringify(task.schedule), time(task.nextAt),
-      ])));
-    paging(root, page, state, navigate);
-  } else if (state.kind === "task") await task(root, state, navigate);
-  else await run(root, state, navigate);
+function nextTrigger(task) {
+  if (task.scheduleStatus === "paused") return stack("已暂停", task.nextAt === null ? "无未来触发" : "原计划 " + time(task.nextAt));
+  return task.nextAt === null ? element("span", "无后续计划", "muted") : time(task.nextAt);
 }
-async function task(root, state, navigate) {
+function paging(root, page, state, link) {
+  if (!state.after && page.next === null) return;
+  root.append(group("pagination", element("span", "第 " + (Math.floor((state.after ?? 0) / 20) + 1) + " 页 · 本页 " + page.items.length + " 条", "hint"),
+    group("actions", state.after ? link("上一页", { ...state, after: Math.max(0, state.after - 20) }, "button") : element("span", "上一页", "button disabled"),
+      page.next === null ? element("span", "下一页", "button disabled") : link("下一页", { ...state, after: page.next }, "button"))));
+}
+export async function renderTasks(root, state, context) {
+  if (state.kind === "task") return renderTask(root, state, context);
+  if (state.kind === "run") return renderRun(root, state, context);
+  const page = await context.request("/tasks?after=" + state.after);
+  root.append(heading("任务", "查看执行进度、交付与触发计划。"));
+  const list = panel("任务列表");
+  if (!page.items.length) list.append(empty(state.after ? "本页没有任务" : "还没有任务", "在已连接的 MCP 客户端中创建任务，提交后会出现在这里。"));
+  else list.append(table(["任务名称", "触发计划", "计划状态", "下次触发"], page.items.map(task => [
+    stack(context.link(task.name, { kind: "task", id: task.id, after: 0, listAfter: state.after }), task.id),
+    schedule(task.schedule), status(task.scheduleStatus), nextTrigger(task),
+  ])));
+  paging(list, page, state, context.link); root.append(list,
+    element("p", "计划状态仅表示未来触发，执行结果请查看运行历史。空闲时每 10 秒更新。", "page-note"));
+}
+async function renderTask(root, state, { request, link, button, confirm, notify, navigate }) {
   const [task, page] = await Promise.all([
     request("/tasks/" + encodeURIComponent(state.id)),
     request("/runs?taskId=" + encodeURIComponent(state.id) + "&after=" + state.after),
   ]);
-  root.append(button("返回任务列表", () => navigate({ kind: "tasks", after: 0 })), element("h2", task.input.name),
-    element("p", task.id + " · 触发计划：" + task.scheduleStatus + " · 下次触发：" + time(task.nextAt)),
-    element("p", "以下操作只影响未来触发，不停止当前运行，也不回滚外部操作。恢复不会补跑；取消后不可恢复未来触发。"));
-  const actions = element("div"); actions.className = "actions";
-  for (const [action, label, enabled] of [
-    ["pause", "暂停未来触发", task.scheduleStatus === "active"],
-    ["resume", "恢复未来触发", task.scheduleStatus === "paused"],
-    ["cancel", "取消未来触发", !["cancelled", "expired"].includes(task.scheduleStatus)],
-  ]) {
-    actions.append(button(label, async () => {
-      if (!confirm(label + "？\n不影响当前运行。恢复不会补跑；取消不可恢复。")) return;
+  root.append(link("← 任务列表", { kind: "tasks", after: state.listAfter ?? 0 }, "back-link"),
+    heading(task.input.name, "查看整体目标、节点计划与历次运行。", status(task.scheduleStatus)));
+  const overview = panel("整体目标"); overview.append(element("p", task.input.prompt, "prose"));
+  const plan = panel("触发计划");
+  plan.append(facts([["执行方式", schedule(task.input.schedule)], ["下次触发", nextTrigger(task)], ["工作目录", task.workspace]]));
+  if (task.nextAt !== null && ["active", "paused"].includes(task.scheduleStatus)) {
+    const control = (action, label) => button(label, async () => {
+      const message = action === "cancel" ? "取消后无法恢复未来触发。当前运行会继续，历史记录将保留。" :
+        action === "resume" ? "恢复后按计划触发，不补跑已错过的时间。" : "暂停后不再开始新的计划运行，当前运行会继续。";
+      if (!await confirm({ title: label + "？", message, confirmText: label, danger: action === "cancel" })) return;
       await request("/task-schedule-control", { taskId: task.id, action });
-      notice("未来触发已更新；当前运行未被取消。");
-      navigate(state);
-    }, !enabled || task.nextAt === null));
+      notify("触发计划已更新。", "success"); await navigate(state, true);
+    }, false, action === "cancel" ? "danger-text" : "");
+    plan.append(group("actions", task.scheduleStatus === "active" ? control("pause", "暂停触发") : control("resume", "恢复触发"), control("cancel", "取消未来触发")));
   }
-  root.append(actions, block("整体目标", task.input.prompt),
-    block("计划、预算与工作空间", { ...task.input, prompt: undefined, nodes: undefined, workspace: task.workspace }),
-    table(["节点", "执行端", "依赖节点"], task.input.nodes.map(node => [node.id, node.executorId, node.dependsOn.join(", ") || "无"])),
-    block("固定 DAG 与执行端快照（只读）", { nodes: task.input.nodes, executors: task.executors }), element("h3", "运行历史"),
-    table(["运行", "状态", "已接受节点", "开始 / 结束", "错误"], page.items.map(run => [
-      button(run.id, () => navigate({ kind: "run", id: run.id })), run.status,
-      run.accepted + " / " + run.total, time(run.createdAt) + " / " + time(run.finishedAt), run.error,
-    ])));
-  paging(root, page, state, navigate);
+  root.append(group("detail-grid", overview, plan));
+  const nodes = panel("节点计划", "执行端与依赖在任务创建时固定。只有已验收交付才能解锁下游节点。");
+  nodes.append(table(["节点", "执行端", "前置节点"], task.input.nodes.map(node => [node.id, node.executorId, node.dependsOn.join("、") || "无"])),
+    block("任务与执行端详情", { id: task.id, ...task.input, workspace: task.workspace, executors: task.executors }, "task-metadata"));
+  const history = panel("运行历史");
+  if (!page.items.length) history.append(empty("尚未开始运行", "任务触发后，可在这里查看进度与结果。"));
+  else history.append(table(["运行", "运行状态", "已验收节点", "开始 / 结束", "异常"], page.items.map(run => [
+    link(run.id, { kind: "run", id: run.id, taskAfter: state.after, listAfter: state.listAfter ?? 0 }), status(run.status),
+    run.accepted + " / " + run.total, stack(time(run.createdAt), run.finishedAt ? time(run.finishedAt) : "尚未结束"), run.error,
+  ])));
+  paging(history, page, state, link); root.append(nodes, history);
 }
-async function run(root, state, navigate) {
+async function renderRun(root, state, { request, link }) {
   const run = await request("/runs/" + encodeURIComponent(state.id));
-  root.append(button("返回任务", () => navigate({ kind: "task", id: run.taskId, after: 0 })),
-    element("h2", "运行 " + run.id), element("p", run.status + " · " + time(run.createdAt) + " → " + time(run.finishedAt)),
-    element("p", "协议回合结束不等于任务完成；只有明确接受的交付才能解锁依赖。"));
-  if (run.error) root.append(block("运行错误 / 阻塞原因", run.error));
-  if (run.summary) root.append(block("运行摘要", run.summary));
-  root.append(table(["节点", "执行端", "状态", "开始", "错误"], run.nodes.map(node =>
-    [node.definition.id, node.definition.executorId, node.status, time(node.startedAt), node.error])));
+  root.append(link("← 返回任务", { kind: "task", id: run.taskId, after: state.taskAfter ?? 0, listAfter: state.listAfter ?? 0 }, "back-link"),
+    heading("运行详情", run.id, status(run.status)));
+  const accepted = run.nodes.filter(node => node.status === "succeeded").length;
+  const overview = panel("运行概况");
+  overview.append(facts([["开始时间", time(run.createdAt)], ["结束时间", run.finishedAt ? time(run.finishedAt) : "尚未结束"], ["已验收节点", accepted + " / " + run.nodes.length]]));
+  if (run.summary) overview.append(element("p", run.summary, "prose"));
+  if (run.error) overview.append(group("notice error", element("strong", "运行异常"), element("p", run.error, "prose")));
+  root.append(overview);
+  const nodes = panel("节点进度", "已验收的交付与原始回合记录分开展示。");
+  if (!run.nodes.length) nodes.append(empty("暂无节点记录", "运行尚未进入节点执行阶段。"));
   for (const node of run.nodes) {
-    const details = element("details"); details.dataset.key = node.id;
-    details.append(element("summary", node.definition.id + " · " + node.status),
-      block("节点与会话记录", { definition: node.definition, workspace: node.workspace, inputFiles: node.inputFiles,
-        deliveryId: node.deliveryId, deliveries: node.deliveries, baseline: node.baseline, resultFile: node.resultFile, sessionId: node.sessionId, error: node.error }, node.id + "-metadata"));
-    if (node.result !== null) details.append(block("已接受交付", node.result, node.id + "-result"),
-      block("接受理由", node.acceptance, node.id + "-acceptance"));
-    node.turns.forEach((turn, index) => details.append(block("回合 " + (index + 1) + "（原始材料，不等于交付）", turn, node.id + "-turn-" + index)));
-    root.append(details);
+    const details = disclosure("", node.id), summary = details.querySelector("summary");
+    details.className = "node-detail";
+    summary.append(group("node-title", element("strong", node.definition.id), element("span", node.definition.executorId, "hint")), status(node.status));
+    details.append(facts([["开始时间", time(node.startedAt)], ["前置节点", node.definition.dependsOn.join("、") || "无"]]));
+    if (node.error) details.append(element("p", node.error, "notice error"));
+    if (node.result !== null) details.append(element("h3", "已验收交付"), element("pre", node.result, "delivery"), block("验收理由", node.acceptance, node.id + "-acceptance"));
+    else details.append(element("p", "尚无已验收交付。", "hint"));
+    details.append(block("节点与会话详情", { definition: node.definition, workspace: node.workspace, inputFiles: node.inputFiles,
+      deliveryId: node.deliveryId, deliveries: node.deliveries, baseline: node.baseline, resultFile: node.resultFile, sessionId: node.sessionId }, node.id + "-metadata"));
+    if (node.turns.length) details.append(disclosure("原始回合 · " + node.turns.length, node.id + "-turns",
+      ...node.turns.map((turn, index) => block("回合 " + (index + 1), turn, node.id + "-turn-" + index))));
+    nodes.append(details);
   }
-  root.append(element("h3", "问题与已有回复（只读）"), element("p", "本页面不回答问题。请通过 MCP 的现有人工回复流程处理。"));
-  if (!run.questions.length) root.append(element("p", "无问题记录。"));
-  for (const question of run.questions) {
-    const card = element("article");
-    card.append(element("h3", question.reply ? "已回复" : "待回答"),
-      element("p", question.question), block("已完成工作", question.completedWork, question.id + "-work"),
-      element("p", "问题 ID：" + question.id + " · 节点：" + (question.nodeId ?? "整体任务")),
-      element("p", "问题期限：" + time(question.expiresAt) + " · 会话期限：" + time(question.sessionExpiresAt)));
-    if (question.reply) card.append(block("已有回复", question.reply.answer, question.id + "-answer"));
-    root.append(card);
+  root.append(nodes);
+  if (run.questions.length) {
+    const questions = panel("问题与回复", "请在发起任务的 MCP 客户端中回答问题。");
+    for (const question of run.questions) {
+      const expired = Math.min(Date.parse(question.expiresAt), question.sessionExpiresAt ? Date.parse(question.sessionExpiresAt) : Infinity) <= Date.now();
+      const label = question.reply ? badge("已回复", "good") : expired ? badge("已过期") : run.status !== "waiting_input" ? badge("未回复") : badge("待回答", "warn");
+      const card = element("article", undefined, "question");
+      card.append(label, element("h3", question.question), element("p", "节点：" + (question.nodeId ?? "整体任务") + " · 回答期限：" + time(question.expiresAt), "hint"));
+      if (question.reply) card.append(element("p", question.reply.answer, "prose"));
+      card.append(block("问题详情", { id: question.id, completedWork: question.completedWork, sessionExpiresAt: question.sessionExpiresAt }, question.id));
+      questions.append(card);
+    }
+    root.append(questions);
   }
 }

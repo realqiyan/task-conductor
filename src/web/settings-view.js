@@ -1,166 +1,65 @@
-import { request } from "./api.js";
-import { element, field, select, button, submit, block, table, notice, report } from "./dom.js";
+import { element, group, heading, panel, badge, facts, table, block } from "./dom.js";
+import { coordinatorEditor, startupEditor, configLabels, configValue } from "./settings-fields.js";
+import { credentialsEditor } from "./credentials-view.js";
 
-function executorStatus(host, initial) {
-  let state = initial, timer;
-  const labels = { missing: "未安装", disabled: "已禁用", installing: "准备中", ready: "可派发", error: "准备失败" };
-  const draw = () => {
-    clearTimeout(timer);
-    host.replaceChildren(table(["执行端", "状态", "本机路径", "进程启动目录", "ACP 适配器版本", "错误", "操作"], state.executors.map(executor => [
-      executor.id, executor.state === "missing" && executor.nativePath ? "已发现，待准备" : labels[executor.state],
-      executor.nativePath, executor.cwd ?? "任务 workspace", executor.adapterVersion ?? (executor.type === "opencode" ? "原生 ACP" : "—"), executor.error,
-      executor.type === "custom" ? button("注销", async () => {
-        if (!confirm("注销 " + executor.id + "？立即阻止新的派发，不终止活动进程，也不修改已有任务或删除历史。")) return;
-        state = await request("/executors/unregister", { id: executor.id }); draw();
-        notice("已注销，无须重启。已有任务不会自动改派。");
-      }) : executor.type === "opencode" ? "通过原生 CLI 更新" : button("升级 ACP 适配器", async () => {
-        if (!confirm("升级 " + executor.id + " 的托管 ACP 适配器？准备期间暂停向此执行端派发新工作。")) return;
-        state = await request("/executors/upgrade", { id: executor.id }); draw();
-        notice("适配器升级已开始，完成后更新状态。");
-      }, !executor.nativePath || ["disabled", "installing"].includes(executor.state)),
-    ])));
-    if (state.executors.some(executor => executor.state === "installing")) timer = setTimeout(async () => {
-      if (!host.isConnected) return;
-      try { state = await request("/executors"); if (host.isConnected) draw(); }
-      catch (error) { if (host.isConnected) report(error); }
-    }, 2000);
+export async function renderSettings(root, context) {
+  const { request, button, submit, confirm, notify, settingsChanged, restarted } = context;
+  let state = await request("/settings"), revision = 0, saving = false;
+  const savedStatus = badge(""), form = element("form", undefined, "panel"), preview = element("section", undefined, "preview");
+  preview.hidden = true; preview.setAttribute("aria-live", "polite");
+  const updateStatus = () => {
+    savedStatus.textContent = state.pendingRestart ? "已保存 · 待重启" : "配置已生效";
+    savedStatus.className = "badge " + (state.pendingRestart ? "warn" : "good");
   };
-  draw();
-  return {
-    refresh: async () => { state = await request("/executors/refresh", {}); draw(); },
-    update: value => { state = value; draw(); },
-  };
-}
-function coordinatorEditor(host, config) {
-  const provider = select("协调模型提供方", [["", "未配置"], ["openai", "OpenAI"], ["anthropic", "Anthropic"],
-    ["deepseek", "DeepSeek"], ["openai-compatible", "OpenAI-compatible"]], config?.provider ?? "");
-  const model = field("模型 ID", config?.model), compatible = element("fieldset");
-  compatible.append(element("legend", "兼容端点元数据（由管理员确认，不自动查询）"));
-  const custom = {
-    baseUrl: field("端点 URL（不得包含凭据、查询参数或片段）", config?.baseUrl),
-    apiKeyEnv: field("密钥变量名（先在下方保存新密钥）", config?.apiKeyEnv ?? "COORDINATOR_API_KEY"),
-    api: select("API", [["openai-completions", "openai-completions"], ["openai-responses", "openai-responses"]], config?.api ?? "openai-completions"),
-    contextWindow: field("上下文窗口", config?.contextWindow, "number"),
-    maxTokens: field("最大输出 token", config?.maxTokens, "number"),
-    reasoning: field("支持 reasoning", config?.reasoning, "checkbox"),
-  };
-  for (const item of Object.values(custom)) compatible.append(item.row);
-  const visibility = () => { compatible.hidden = provider.input.value !== "openai-compatible"; model.row.hidden = !provider.input.value; };
-  provider.input.addEventListener("change", visibility); visibility();
-  host.append(provider.row, model.row, compatible);
-  return () => {
-    if (!provider.input.value) return undefined;
-    const result = { provider: provider.input.value, model: model.input.value };
-    if (result.provider === "openai-compatible") Object.assign(result, {
-      baseUrl: custom.baseUrl.input.value, apiKeyEnv: custom.apiKeyEnv.input.value, api: custom.api.input.value,
-      contextWindow: custom.contextWindow.input.valueAsNumber, maxTokens: custom.maxTokens.input.valueAsNumber,
-      reasoning: custom.reasoning.input.checked,
-    });
-    return result;
-  };
-}
-export async function renderSettings(root, navigate) {
-  const initial = await Promise.all([request("/settings"), request("/executors")]);
-  let state = initial[0];
-  root.append(element("h2", "配置与凭据"), element("p", "配置和密钥分别保存。保存不修改当前进程；每次重新启动（包括故障后拉起）读取已保存值。"),
-    element("p", "先保存新密钥，再保存引用它的配置。执行端原生登录和原生权限仍通过官方工具管理；这里不编辑其认证文件。"),
-    block("当前运行配置（只读，无密钥值）", state.running));
-  if (state.writeBlocked) root.append(element("p", "上次文件提交结果不确定。请停服核查；当前禁止继续保存。"));
-  const executorHost = element("div");
-  const executors = executorStatus(executorHost, initial[1]);
-  root.append(element("h3", "本机执行端"),
-    element("p", "自动检测 pi、codex、claude 和 opencode。可派发表示启动依赖已准备，不代表原生认证或工具权限已验收。"),
-    button("重新检测并准备执行端", executors.refresh), executorHost);
-  const registration = element("form"), custom = {
-    id: field("自定义执行端 ID（不得覆盖已有 ID）"),
-    command: field("本机 stdio ACP 可执行文件（规范绝对路径）"),
-    args: field("参数（JSON 字符串数组，不含凭据）", "[]"),
-    cwd: field("进程启动目录（可选，规范绝对目录；留空使用任务 workspace）"),
-  };
-  registration.append(element("h4", "注册自定义 ACP 执行端"),
-    element("p", "此操作授权本机程序作为执行端。使用原生配置完成认证和无人值守授权；不接受远程地址、环境变量或密钥。命令直接执行，可选目录只设置进程启动 cwd，不覆盖 ACP 会话的任务 workspace。保存后立即生效，无须重启；不启动协议或模型探测。"),
-    ...Object.values(custom).map(item => item.row));
-  registration.append(submit(registration, "注册本机 ACP", async () => {
-    let args;
-    try { args = JSON.parse(custom.args.input.value); }
-    catch { throw new Error("参数须为 JSON 字符串数组"); }
-    const input = { id: custom.id.input.value, command: custom.command.input.value, args,
-      ...(custom.cwd.input.value ? { cwd: custom.cwd.input.value } : {}) };
-    if (!confirm("确认注册 " + input.id + " 并允许服务在后续任务中启动该本机程序？参数和命令不得含凭据。")) return;
-    executors.update(await request("/executors/register", input));
-    notice("注册已保存并生效，无须重启。可派发不代表 ACP 协议、模型认证或工具授权已验证。");
-  }));
-  root.append(registration);
-  const form = element("form"), modelHost = element("fieldset"), executorOptions = element("fieldset");
-  modelHost.append(element("legend", "协调模型"));
-  const readModel = coordinatorEditor(modelHost, state.saved.coordinator);
-  const startup = {
-    dataDir: field("下次启动的数据目录（规范绝对路径；不搬迁或删除旧历史）", state.saved.dataDir),
-    port: field("下次启动的监听端口（0 为自动分配）", state.saved.port, "number"),
-    tokenEnv: field("MCP 令牌环境变量名（改名保留令牌值）", state.saved.tokenEnv),
-  };
-  executorOptions.append(element("legend", "下次启动启用的执行端"),
-    element("p", "默认使用所有检测到的执行端。取消勾选后保存并重启；已有任务不会自动改派。"));
-  const enabled = ["pi", "codex", "claude", "opencode"].map(type => {
-    const item = field(type, !state.saved.disabledExecutors.includes(type), "checkbox");
-    executorOptions.append(item.row); return { type, input: item.input };
-  });
-  const advanced = element("details"); advanced.dataset.key = "advanced-settings";
-  advanced.append(element("summary", "高级设置"), element("h3", "启动配置"),
-    ...Object.values(startup).map(item => item.row), executorOptions);
-  form.append(modelHost, advanced);
-  const preview = element("div");
-  const save = submit(form, "校验并预览配置变更", async () => {
-    const input = { editToken: state.editToken,
-      config: { dataDir: startup.dataDir.input.value, port: startup.port.input.valueAsNumber, tokenEnv: startup.tokenEnv.input.value,
-      coordinator: readModel(), disabledExecutors: enabled.filter(item => !item.input.checked).map(item => item.type) } };
+  function invalidate() { revision++; preview.hidden = true; preview.replaceChildren(); }
+  async function save(path, input) {
+    if (saving) throw new Error("正在保存，请稍候。");
+    saving = true; root.inert = true;
+    try {
+      state = await request(path, { ...input, editToken: state.editToken }); invalidate(); updateStatus();
+      await settingsChanged(); return state;
+    } finally { saving = false; root.inert = false; }
+  }
+  root.append(heading("设置", "管理协调模型、密钥与服务启动配置。", savedStatus)); updateStatus();
+  if (state.writeBlocked) root.append(element("p", "上次保存结果未确认。请停服核查配置文件，当前禁止保存与重启。", "notice error"));
+  form.append(element("h2", "协调模型"), element("p", "负责推进任务、处理澄清与验收交付。", "hint"));
+  const readModel = coordinatorEditor(form, state.saved.coordinator), readStartup = startupEditor(form, state.saved);
+  for (const event of ["input", "change"]) form.addEventListener(event, invalidate);
+  const validate = submit(form, "预览变更", async () => {
+    const input = { editToken: state.editToken, config: { ...readStartup(), coordinator: readModel() } }, current = revision;
     const checked = await request("/settings/validate", input);
-    preview.replaceChildren(block("校验后的待保存配置", checked.config),
-      block("配置变更", checked.changes),
-      block("重启后受执行端变更影响的任务", checked.affectedTasks));
-    const affected = checked.affectedTasks.map(task => task.name + " (" + task.id + ")").join("\n") || "无";
-    if (!confirm("本地校验通过，不代表模型认证或 ACP 执行已验证。\n受影响任务：\n" + affected +
-      "\n\n旧任务快照不会被重写，派发可能被拒绝。确认保存配置？保存后仍须手动重启。")) return;
-    await request("/settings/config", input);
-    notice("配置已保存，未热更新。检查活动运行后可在本页或 CLI 重启。");
-    navigate({ kind: "settings" }, true);
+    if (revision !== current) return;
+    preview.replaceChildren(element("h3", checked.changes.length ? "确认配置变更" : "没有新的配置变更")); preview.hidden = false;
+    if (!checked.changes.length) { preview.append(element("p", "当前编辑与已保存配置一致。", "hint")); return; }
+    preview.append(table(["配置项", "已保存", "将保存"], checked.changes.map(change => [configLabels[change.field] ?? change.field,
+      element("span", configValue(change.field, change.before), "prose"), element("span", configValue(change.field, change.after), "prose")])));
+    if (checked.affectedTasks.length) preview.append(group("notice warning", element("strong", "受影响任务"),
+      element("p", checked.affectedTasks.map(task => task.name + " · " + task.id).join("\n"), "prose"),
+      element("p", "执行端变更可能阻止这些任务继续派发，已有指派不会自动调整。")));
+    preview.append(element("p", "本地校验通过。保存后须重启生效；校验不验证模型认证或实际执行。", "hint"),
+      group("actions", button("确认保存", async () => {
+        if (revision !== current) return;
+        await save("/settings/config", { config: checked.config }); delete form.dataset.dirty; refreshCredentials();
+        notify("配置已保存，重启后生效。", "success");
+      }, state.writeBlocked, "primary"), button("返回编辑", () => { invalidate(); validate.focus(); })));
+    preview.scrollIntoView({ block: "nearest", behavior: "smooth" });
   });
-  save.disabled = state.writeBlocked; form.append(save, preview); root.append(form);
-
-  root.append(element("h3", "密钥（仅显示是否设置）"),
-    element("p", "不提交即保留原值。新变量名使用 _KEY、_TOKEN、_SECRET 或 _PASSWORD 结尾；不能在这里修改服务/管理员令牌或运行环境。"));
-  const statuses = element("div"), credentialForm = element("form");
-  const key = field("凭据变量名"), value = field("新值（替换后不回显）", "", "password");
-  key.input.required = true; value.input.required = true;
-  value.input.maxLength = 16384;
-  const drawCredentials = () => {
-    statuses.replaceChildren(table(["变量名", "已保存", "当前进程已设置", "待重启", "操作"], state.credentials.map(credential => [
-      credential.key, credential.saved ? "是" : "否", credential.running ? "是" : "否", credential.pendingRestart ? "是" : "否",
-      button("删除已保存值", async () => {
-        if (!confirm("删除 " + credential.key + " 的已保存值？当前进程仍保留旧值，直到重启。")) return;
-        state = await request("/settings/credential", { editToken: state.editToken, key: credential.key, action: "delete" });
-        drawCredentials(); notice("密钥删除已保存，待重启。配置表单中的未保存编辑仍保留。");
-      }, !credential.saved || credential.referenced || state.writeBlocked),
-    ])));
-  };
-  drawCredentials();
-  credentialForm.append(key.row, value.row);
-  const replace = submit(credentialForm, "单独保存此密钥", async () => {
-    const input = { editToken: state.editToken, key: key.input.value, action: "replace", value: value.input.value };
-    value.input.value = "";
-    state = await request("/settings/credential", input);
-    drawCredentials(); notice("密钥已保存，未热更新。配置表单中的未保存编辑仍保留，请继续校验并保存配置。");
+  validate.disabled = state.writeBlocked;
+  form.append(group("form-footer", validate, element("span", "保存后重启生效", "hint")), preview); root.append(form);
+  const refreshCredentials = credentialsEditor(root, {
+    snapshot: () => state, save: input => save("/settings/credential", input), button, submit, confirm, notify,
   });
-  replace.disabled = state.writeBlocked;
-  credentialForm.append(replace);
-  root.append(statuses, credentialForm, element("h3", "重启服务"),
-    element("p", "重启只应用已保存配置，未保存草稿会丢失。活动执行及待回答运行可能持有 ACP 会话；重启会关闭会话，不自动重试或重放不确定执行。"),
-    button("重启并检查可用性", async () => {
-      if (!confirm("确认使用已保存配置重启？活动工作可能中断，旧数据不会迁移。")) return;
-      notice("正在关闭旧运行并启动新实例，请勿重复操作……");
-      const ready = await request("/restart", {});
-      document.dispatchEvent(new CustomEvent("service-restarted", { detail: ready }));
-    }, state.writeBlocked),
-    block("重启命令", "task-conductor restart [--home /absolute/installation]"),
-    element("p", "只有新实例通过认证健康检查才显示成功。若请求结果不确定，请先运行 task-conductor status；启动失败时检查当前 dataDir/service.log，不删除历史或重放任务来修复。"));
+  const service = panel("服务与重启", "重启应用已保存的配置与密钥，并检查新实例是否可用。");
+  service.append(facts([["当前模型", state.running.coordinator ? state.running.coordinator.model : "未配置"],
+    ["当前数据目录", state.running.dataDir], ["监听端口", configValue("port", state.running.port)]]),
+    block("当前运行配置", state.running, "running-settings"),
+    group("form-footer", button("重启服务", async () => {
+      const status = await request("/status");
+      if (!await confirm({ title: "使用已保存配置重启？", message:
+        "当前活动协调 " + status.activeTaskRunIds.length + " 个，ACP 会话 " + status.activeNodeRunIds.length +
+        " 个。重启会关闭会话，活动执行及待回答运行可能中断。未保存编辑将丢失，旧数据不会迁移。", confirmText: "确认重启", danger: true })) return;
+      notify("正在重启并检查服务，请稍候…");
+      restarted(await request("/restart", {}));
+    }, state.writeBlocked), element("span", "活动执行可能中断", "hint")));
+  root.append(service);
 }
