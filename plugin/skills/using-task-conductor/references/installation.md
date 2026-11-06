@@ -56,6 +56,12 @@ pi mcp add --local task-conductor -- /absolute/bin/task-conductor mcp --home /ab
 
 默认用 `--local` 将 MCP 条目写入本项目的 `.pi/mcp.json`；仅在用户明确选择用户范围时省略 `--local`。add 会替换同名条目。使用 /reload 或新会话重载。若其他扩展替代了原生 MCP，应先询问保留哪种接入，不再安装第二座桥接。
 
+### Pi 通知设置
+
+通知适用于 Pi TUI/RPC 持久会话；print、JSON 和内存会话不自动通知。扩展填写任务的 notification 归属，首次提交保存项目身份文件。事件回到原会话，忙碌时排队跟进。
+
+自定义程序或 home 使用上文的 `TASK_CONDUCTOR_PREFLIGHT_COMMAND` 和 `TASK_CONDUCTOR_PREFLIGHT_HOME`，与 MCP 指向同一安装；MCP 服务改名时设置 `TASK_CONDUCTOR_MCP_SERVER`。可用 `TASK_CONDUCTOR_NOTIFICATIONS=off` 关闭通知。这些变量不修改 MCP 配置。
+
 ### Claude Code 与 Codex 插件
 
 启用的插件已声明 `task-conductor mcp`，默认安装不要再手工添加。setup 后开启新会话；Claude Code 也可在 /mcp 重连。核查新会话的 /mcp 状态。

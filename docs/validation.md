@@ -75,7 +75,11 @@ git diff --check
 
 ### 已验证结论
 
-`0.1.0-rc.9` 通知功能候选工作树，Linux x64、Node 24.15.0，协调者与隔离原生 Pi 均使用 DeepSeek `deepseek-flash`：单节点、人工续答 DAG（测试数量 3）、持续对话三组真实 E2E 各一次全部通过，临时原生凭据已清理。证据分别为 `/tmp/agent-task-pi-human-JCNSBo/test-1.log`、`/tmp/agent-task-pi-human-mTZ7BV/test-1.log`、`/tmp/agent-task-pi-human-UB32Hm/test-1.log`。同一工作树的 91 项基础测试（含三项原生 Pi 通知用例）全部通过，无跳过；不据此推导模型稳定性、真实 TUI 或其他平台已验收。
+`0.1.3` 基线（`610b3b5`）上的提示词精简及验收反馈调整工作树，macOS、Node 24.22.2、Pi 1.5.0、pi-acp 0.0.34，协调者与隔离原生 Pi 均使用 DeepSeek `deepseek-flash`：三组真实 E2E 各运行一次全部通过。单节点使用 3/6 次协调模型请求；三节点问答（测试数量 4）使用 11/18 次，确认同一 ACP 会话两轮澄清、上游不重放及下游实际读取；持续对话的初始与补充 Run 分别使用 7/25、5/25 次，验证普通讨论与执行隔离、模型写入记忆并在空闲重启后读取、补充交付与下游复核、旧 Run 和旧文件保留。原生会话记录确认四次 read 调用成功；九个 SDK 输入均为 done，服务正常退出，无未终结 SDK 任务，临时凭据已清理。证据：`/private/tmp/task-conductor-e2e-recheck-jz1Ga3/report.json`，含三组日志、交付、原生读取及工具调用定位。
+
+此次单节点和持续对话无工具错误；DAG 仍有一次因上游为 stale 而过早派发的拒绝，模型随后重验证并完成。持续对话验收时正确省略 reviewedMessageIds 或传 []，未复现旧参数错误；因此本次通过不证明模型能从新的错误反馈中恢复，也不证明稳定性或改动因果关系。MCP 调用方为测试脚本，未覆盖宿主模型自主使用 skill 和工具创建任务。
+
+保留参数误用的失败边界：同一环境在验收反馈调整前，持续对话初始 Run 使用 15/25 次模型请求后失败；模型在 unreviewedMessageIds=[] 时填入派发前已有消息，六次验收被拒，三个正确 ACP 输出仍未形成交付。回答早于首轮派发且之后没有新输入，失败发生在内容断言之前，不是测试时序或格式要求造成。证据：`/private/tmp/task-conductor-prompt-e2e-audit-fBw5k1/report.json`。当前[验收实现](../src/tasks/runs.ts)区分参数误填与事实变化，[工具契约](../src/integrations/coordinator/coordinator.ts)明确新增消息范围与空列表语义；[业务回归](../tests/task-conversations.test.mjs)验证修正参数即可验收原输出，同时继续拒绝遗漏消息、失效依据和上游变化。
 
 发布前的中文协调重构工作树（`0.1.0-rc.6`，基于 `459f46b`），Linux x64、Node 24.15.0、pi durable 1.3.0，协调者与原生 Pi 均使用 DeepSeek `deepseek-flash`：三组字面字段 E2E 各执行一次均通过。单节点使用 3/6 次模型请求，人工续答 DAG 使用 11/18，持续对话两次 Run 使用 6/25、5/25。只读核查 6 个库、4 个 Run、8 个原生会话及 9 个 turn，交付、依赖文件读取、旧记录保留和来源引用一致；9 个 SDK 输入全部 done，无活动 SDK 任务或工具错误。证据：`/tmp/agent-task-coordinator-refactor-jJBkc9/audit.json`。这是一次通过，不证明稳定性或复杂领域判断；新模型请求单位不能与旧混合步数直接比较。
 

@@ -50,10 +50,10 @@ export const memorySourceData = z.discriminatedUnion("type", [
 ]);
 export const memoryItemData = z.object({
   key: identifier, kind: z.enum(["fact", "decision", "caution", "lesson", "question"]), text: text(2000),
-  sources: z.array(memorySourceData).min(1).max(10).describe("支持该笔记的结构化记录引用。"),
+  sources: z.array(memorySourceData).min(1).max(10).describe("支持该笔记的来源；使用输入或工具返回的 reference。"),
   scope: z.discriminatedUnion("type", [z.object({ type: z.literal("task") }).strict(),
     z.object({ type: z.literal("run"), runId: z.string().uuid() }).strict()])
-    .describe("适用范围，不是保存期限。task：来源支持的持续要求、偏好或经验；历史笔记须标出所属 Run，不能变成默认值。run：本次执行专属事实、结果或假设。一次修订不构成持续默认值，来源位置不机械决定适用范围。"),
+    .describe("run：本次执行专属事实、结果或假设。task：来源明确支持的持续要求、偏好或经验；历史笔记注明所属 Run，不作为默认值。按内容确定适用范围，范围不明时保留条件。"),
   basis: z.enum(["reported", "inferred"])
-    .describe("reported：复述来源陈述或记录结果，保留条件和范围；inferred：协调者推断，不是用户确认更广适用范围。两者都不代表独立验证。"),
+    .describe("reported：复述来源；inferred：协调者推断。保留不确定性，不能据此声称已独立验证或获得用户确认。"),
 }).strict();

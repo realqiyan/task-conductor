@@ -33,7 +33,7 @@ export class TaskDefinitions {
     }
     if (all.length >= MAX_TASKS) throw new TaskError("precondition", "Task definition limit reached");
     validateGraph(input.nodes);
-    for (const node of input.nodes) validateExecutionContext(input, node, this.resultsRoot);
+    for (const node of input.nodes) validateExecutionContext(node, this.resultsRoot);
     const executors = this.executors.snapshot(input.nodes.map(node => node.executorId));
     const nextAt = initialTime(input.schedule, now);
     if (input.schedule.type !== "now" && nextAt < now) throw new TaskError("validation", "Schedule must start in the future");

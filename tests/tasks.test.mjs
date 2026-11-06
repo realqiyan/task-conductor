@@ -54,7 +54,7 @@ test("a turn ending with a question is not a DAG delivery; only accepted excerpt
   a.turns = [{ prompt: "Inspect data", output: "Which source should I inspect?", stopReason: "end_turn", sessionId: null, inputDeliveries: [], messageIds: [], contextMessageIds: [] }];
   f.store.commitRun( run);
   assert.equal(f.service.runs.get(run.id).nodes[0].resultFile, null);
-  await assert.rejects(f.service.supervisor.converse(run.id, "B"), /Dependencies/);
+  await assert.rejects(f.service.supervisor.converse(run.id, "B"), { code: "precondition" });
   assert.throws(() => f.service.supervisor.actions(run.id).finish("Finished"), /accepted/);
   await assert.rejects(f.service.supervisor.actions(run.id).accept("A", 0, "", "已有输出尚未验收", true), /previously accepted/);
   assert.deepEqual(f.service.runs.get(run.id), run);
@@ -93,8 +93,6 @@ test("DAG admission validates structure, assigned executors and deduplication be
     [[node("A", ["B"]), node("B", ["A"])], /Cyclic/], [[node("A", ["missing"])], /Unknown dependency/],
     [[{ ...node("A"), executorId: "unregistered" }], /not ready/],
   ]) assert.throws(() => f.service.definitions.create({ ...f.input, requestKey: "invalid", nodes }), error);
-  assert.throws(() => f.service.definitions.create({ ...f.input, requestKey: "oversized-context", prompt: "x".repeat(64000),
-    nodes: [{ ...node("large"), prompt: "y".repeat(64000) }] }), /上下文超过/);
   f.executors.splice(0);
   await f.reopen();
   assert.throws(() => f.service.definitions.create({ ...f.input, requestKey: "unapproved" }), /not ready/);
@@ -107,14 +105,17 @@ test("DAG admission validates structure, assigned executors and deduplication be
   assert.equal(f.service.runs.get(f.run.id).status, "failed");
 });
 
-test("创建预留直接上游和旧交付的上下文容量，接近上限的定义在持久化前被拒绝", t => {
-  const f = fixture(t), largeNode = { ...node("B", ["A"]), prompt: "b".repeat(64000) };
-  const input = { ...f.input, requestKey: "context-boundary", nodes: [node("A"), largeNode], prompt: "a" };
-  input.prompt = "a".repeat(127990 - executionContext(input, largeNode).length + 1);
-  assert.equal(executionContext(input, largeNode).length, 127990);
-  const before = f.store.definitions();
-  assert.throws(() => f.service.definitions.create(input), error => error.code === "validation" && /必要交付引用/.test(error.message));
-  assert.deepEqual(f.store.definitions(), before);
+test("整体目标不占节点派发容量，必要上下文超限时拒绝且不记录派发", t => {
+  const f = fixture(t), largeNode = { ...node("large"), prompt: "b".repeat(64000) };
+  const task = f.service.definitions.create({ ...f.input, requestKey: "context-boundary", nodes: [largeNode], prompt: "a".repeat(64000) });
+  f.service.runs.trigger();
+  const run = f.service.runs.list(task.id).items[0], before = f.service.runs.get(run.id);
+  const sessions = new NodeSessions(createExecution({ PATH: "/usr/bin:/bin" }), error => { throw error; });
+  t.after(() => sessions.close());
+  assert.ok(executionContext(largeNode).length < 65000);
+  assert.throws(() => f.service.runs.prepareTurn(run.id, largeNode.id, "c".repeat(64000), sessions),
+    error => error.code === "precondition" && /上下文超过/.test(error.message));
+  assert.deepEqual(f.service.runs.get(run.id), before);
 });
 
 test("含 JSON 转义与十九个上游的长上下文可派发，并容纳补充 Run 的旧交付", async t => {
@@ -141,7 +142,7 @@ test("含 JSON 转义与十九个上游的长上下文可派发，并容纳补�
   f.store.saveMessages([{ ...receipt, status: "submitted", submissionId: "1" }]);
   f.service.runs.observe(task.id, receipt.runId, [receipt.id]);
   for (const parent of parents) f.service.runs.accept(receipt.runId, parent.id, 0, "", "原输入及交付仍满足要求", true);
-  const dispatch = f.service.runs.prepareTurn(receipt.runId, sink.id, "核对", sessions);
+  const dispatch = f.service.runs.prepareTurn(receipt.runId, sink.id, "核对" + "\u0001".repeat(9000), sessions);
   const context = JSON.parse(dispatch.text.split("执行上下文：\n")[1]);
   assert.ok(dispatch.text.length > 120000 && dispatch.text.length <= 128000);
   assert.equal(context.upstream.length, 19);

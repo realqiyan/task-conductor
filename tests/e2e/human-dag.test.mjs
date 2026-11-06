@@ -109,6 +109,7 @@ test("real three-node DAG waits for human quantity and resumes without replay", 
   }
   assert.equal(new Set(run.nodes.map(node => node.sessionId)).size, 3);
   assert.equal(after.record.turns.length, 2, "Record must clarify within the same ACP session");
+  assert.deepEqual(after.record.turns.map(turn => turn.sessionId), [after.record.sessionId, after.record.sessionId], "两轮澄清必须使用同一个 ACP 会话");
   assert.ok(after.record.turns[0].output.trim(), "The clarification turn must have an actual response");
   assert.ok(!after.record.turns[0].output.includes(after.record.result), "The quantity request must not be accepted as the completed delivery");
   for (const node of [after.record, after.copy]) verifyRecord(node.result, marker, quantity);

@@ -105,7 +105,7 @@ export class TaskRuns {
         task.scheduleStatus = "expired"; task.nextAt = null; this.store.saveDefinition(task); continue;
       }
       const { at, count, reason } = trigger, id = randomUUID();
-      const message = inputMessage(task.id, id, "run:" + id, "根据当前上下文推进既定 DAG，判断交付与整体目标是否满足。执行意图来自已持久化的触发计划。", "execution", true, "", now);
+      const message = inputMessage(task.id, id, "run:" + id, "请推进本次任务，审查交付并判断整体目标是否完成。", "execution", true, "", now);
       const run = this.newRun(task, id, message.id, now);
       run.scheduledAt = at; run.skippedCount = reason ? count : count - 1;
       if (reason) {
@@ -198,14 +198,17 @@ export class TaskRuns {
       if (!fact) throw new TaskError("validation", `contextMessageIds[${index}] is not eligible for Run ${run.id}; use observed, non-failed user messages with Task scope or this Run's scope`);
       const question = fact.questionId && fact.runId
         ? this.get(fact.runId).questions.find(question => question.id === fact.questionId) : undefined;
-      return { messageId: fact.id, kind: fact.kind, runId: fact.runId, createdAt: fact.createdAt,
-        content: fact.content, questionId: fact.questionId, question: question?.question ?? null };
+      return { content: fact.content, createdAt: fact.createdAt, ...(question ? { question: question.question } : {}) };
     });
     if (["succeeded", "stale"].includes(node.status) && run.source.type !== "message" && !facts.some(fact => fact.kind === "supplement")) {
       throw new TaskError("precondition", "Additional executor work needs an explicit execute=true user message");
     }
     const parents = node.definition.dependsOn.map(parent => this.node(run, parent));
-    if (parents.some(parent => parent.status !== "succeeded" || !parent.resultFile || !parent.deliveryId)) throw new TaskError("precondition", "Dependencies have no current accepted delivery");
+    const unavailable = parents.filter(parent => parent.status !== "succeeded" || !parent.resultFile || !parent.deliveryId);
+    if (unavailable.length) {
+      const states = unavailable.map(parent => ({ nodeId: parent.definition.id, status: parent.status }));
+      throw new TaskError("precondition", "以下上游尚无当前有效的已验收交付：" + JSON.stringify(states));
+    }
     const opening = !sessions.has(node.id);
     if (opening && node.status === "awaiting_review") {
       this.end(id, "interrupted", "ACP session unavailable; no replay"); throw new TaskError("precondition", "ACP session unavailable");
@@ -218,12 +221,13 @@ export class TaskRuns {
     const previous = node.deliveries.at(-1) ?? node.baseline;
     node.inputFiles = [...new Set([...parents.map(parent => parent.resultFile!), ...previous ? [previous.path] : []])];
     for (const path of node.inputFiles) this.results.readable(path);
-    const text = executionContext(task.input, node.definition, {
-      userFacts: selected,
-      upstream: parents.map(parent => ({ nodeId: parent.definition.id, deliveryId: parent.deliveryId, resultFile: parent.resultFile })),
-      previousDelivery: previous ? { runId: previous.runId, deliveryId: previous.id, resultFile: previous.path,
-        excerpt: previous.text.slice(0, 500), length: previous.text.length } : null,
-      clarification: message,
+    const text = executionContext(node.definition, {
+      continuing: !opening,
+      kind: node.status === "awaiting_review" ? "clarify" : previous ? "supplement" : "execute",
+      message,
+      userMessages: selected,
+      upstream: parents.map(parent => ({ nodeId: parent.definition.id, resultFile: parent.resultFile! })),
+      previousDelivery: previous ? { resultFile: previous.path, excerpt: previous.text.slice(0, 500), length: previous.text.length } : undefined,
     });
     node.turns.push({ prompt: text, output: "", stopReason: null, sessionId: opening ? null : node.sessionId,
       inputDeliveries: parents.map(parent => parent.deliveryId!), messageIds: facts.map(fact => fact.id), contextMessageIds: [...contextMessageIds] });
@@ -273,11 +277,19 @@ export class TaskRuns {
     } else {
       const latest = node.turns.at(-1);
       if (node.status !== "awaiting_review" || turn !== node.turns.length || latest?.stopReason !== "end_turn") throw new TaskError("conflict", "Only the latest completed turn can be accepted");
-      if (!same(inputDeliveries, latest.inputDeliveries)) throw new TaskError("conflict", "Turn predates upstream changes; clarify before accepting");
+      if (!same(inputDeliveries, latest.inputDeliveries)) throw new TaskError("conflict", "本轮使用的上游交付已变更，输出须基于当前上游重新澄清后验收");
+      if (latest.messageIds.some(id => !messageIds.includes(id))) {
+        throw new TaskError("conflict", "本轮依据中的消息已不再适用，须核对当前事实后澄清");
+      }
       const added = messageIds.filter(id => !latest.messageIds.includes(id));
-      if (latest.messageIds.some(id => !messageIds.includes(id)) || new Set(reviewedMessageIds).size !== reviewedMessageIds.length ||
-        reviewedMessageIds.length !== added.length || reviewedMessageIds.some(id => !added.includes(id))) {
-        throw new TaskError("conflict", "Turn predates new input; review every added message and pass its ID in reviewedMessageIds only if the output still meets the requirements");
+      if (new Set(reviewedMessageIds).size !== reviewedMessageIds.length) {
+        throw new TaskError("validation", "reviewedMessageIds 不得包含重复 ID");
+      }
+      if (reviewedMessageIds.some(id => !added.includes(id))) {
+        throw new TaskError("validation", "reviewedMessageIds 包含非本轮派发后新增的消息 ID；当前新增消息 ID：" + JSON.stringify(added));
+      }
+      if (reviewedMessageIds.length !== added.length) {
+        throw new TaskError("conflict", "尚未确认审查的新增消息 ID：" + JSON.stringify(added.filter(id => !reviewedMessageIds.includes(id))));
       }
       if (added.length) {
         reason = "新增消息已审查且不影响交付：" + JSON.stringify(added) + "\n" + reason;

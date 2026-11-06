@@ -194,7 +194,7 @@ test("ordinary input is idempotent, does not answer questions or reset budgets, 
   assert.throws(() => actions.ask({ question: "Which count?", completedWork: "Turn ended" }), /Unprocessed/);
   assert.throws(() => actions.finish("Complete"), /Unprocessed/);
   observed(f, receipt);
-  assert.throws(() => f.service.runs.accept(f.run.id, "A", 1, "Original result", "Complete"), /predates/);
+  assert.throws(() => f.service.runs.accept(f.run.id, "A", 1, "Original result", "Complete"), { code: "conflict" });
   const question = actions.ask({ question: "Which source?", completedWork: "Old result needs clarification" });
   const discussion = f.service.supervisor.send({ taskId: f.task.id, requestKey: "chat", message: "Explain this question." });
   assert.equal(discussion.execute, false);
@@ -219,12 +219,12 @@ test("新增消息经明确无影响审查后验收原输出，遗漏、竞争�
   assert.throws(() => accept([message.id]), /Unprocessed/);
   observed(f, message);
   assert.deepEqual(coordinatorView(f.service.supervisor.actions(f.run.id)).view.run.nodes[0].unreviewedMessageIds, [message.id]);
-  assert.throws(() => accept([]), /predates/);
-  assert.throws(() => accept([randomUUID()]), /predates/);
-  assert.throws(() => accept([message.id, message.id]), /predates/);
+  assert.throws(() => accept([]), { code: "conflict" });
+  assert.throws(() => accept([randomUUID()]), { code: "validation" });
+  assert.throws(() => accept([message.id, message.id]), { code: "validation" });
   const later = f.service.supervisor.send({ taskId: f.task.id, requestKey: "progress-2", message: "还在执行吗？" });
   observed(f, later);
-  assert.throws(() => accept([message.id]), /predates/);
+  assert.throws(() => accept([message.id]), { code: "conflict" });
   const turn = f.service.runs.get(f.run.id).nodes[0].turns[0];
   const delivery = accept([message.id, later.id]);
   assert.deepEqual(delivery.messageIds, [message.id, later.id]);
@@ -237,18 +237,68 @@ test("新增消息经明确无影响审查后验收原输出，遗漏、竞争�
   const changed = f.service.supervisor.send({ taskId: f.task.id, requestKey: "more", message: "补充检查", runId: f.run.id, execute: true });
   observed(f, changed);
   f.service.runs.accept(f.run.id, "A", 0, "", "重验证仍有效的上游", true);
-  assert.throws(() => f.service.runs.accept(f.run.id, "B", 1, "Review result", "仍有效", false, [changed.id]), /upstream/);
+  assert.throws(() => f.service.runs.accept(f.run.id, "B", 1, "Review result", "仍有效", false, [changed.id]), { code: "conflict" });
 });
 
-test("节点回答保留问题语义、来源和范围", t => {
+test("验收多传已有消息时可修正参数完成原交付，无需再次派发", t => {
+  const f = fixture(t);
+  const question = f.service.runs.ask(f.run.id, { question: "本次记录的数量？", completedWork: "尚未执行节点" });
+  const discussion = f.service.supervisor.send({ taskId: f.task.id, requestKey: "discussion", message: "请说明缺少什么；这不是问题回答" });
+  observed(f, discussion);
+  const answer = f.service.supervisor.answer({ taskId: f.task.id, questionId: question.id, requestKey: "answer", answer: "3" });
+  observed(f, answer);
+  f.service.runs.prepareTurn(f.run.id, "A", undefined, f.sessions, [answer.id]);
+  f.service.runs.record(f.run.id, "A", "output", null, "数量为 3");
+  f.service.runs.completeTurn(f.run.id, "A", "end_turn");
+  const before = f.service.runs.get(f.run.id);
+  const view = coordinatorView(f.service.supervisor.actions(f.run.id));
+  assert.deepEqual(view.view.run.nodes[0].unreviewedMessageIds, []);
+  const accept = ids => f.service.runs.accept(f.run.id, "A", 1, "数量为 3", "记录符合明确回答的数量", false, ids);
+  for (const ids of [[answer.id], [discussion.id, answer.id]]) {
+    assert.throws(() => accept(ids), { code: "validation" });
+    assert.deepEqual(f.service.runs.get(f.run.id), before);
+  }
+  const delivery = accept(undefined);
+  assert.deepEqual(delivery.messageIds, [discussion.id, answer.id]);
+  assert.equal(readFileSync(delivery.path, "utf8"), "数量为 3");
+  assert.deepEqual(f.service.runs.get(f.run.id).nodes[0].turns, before.nodes[0].turns);
+  f.service.runs.prepareTurn(f.run.id, "B", undefined, f.sessions);
+  f.service.runs.record(f.run.id, "B", "output", null, "数量核对无误");
+  f.service.runs.completeTurn(f.run.id, "B", "end_turn");
+  f.service.runs.accept(f.run.id, "B", 1, "数量核对无误", "上下游数量一致", false, []);
+  f.service.runs.finish(f.run.id, "两份记录均已核对");
+  assert.equal(f.service.runs.get(f.run.id).status, "succeeded");
+});
+
+test("原交付依据失效时仍拒绝验收，空审查列表不能绕过", t => {
+  const f = fixture(t);
+  const message = f.service.supervisor.send({ taskId: f.task.id, requestKey: "fact", message: "数量为 3" });
+  observed(f, message);
+  f.service.runs.prepareTurn(f.run.id, "A", undefined, f.sessions, [message.id]);
+  f.service.runs.record(f.run.id, "A", "output", null, "数量为 3");
+  f.service.runs.completeTurn(f.run.id, "A", "end_turn");
+  f.service.conversations.settle(message.id, "该条输入处理失败");
+  const before = f.service.runs.get(f.run.id);
+  for (const ids of [[], [message.id]]) {
+    assert.throws(() => f.service.runs.accept(f.run.id, "A", 1, "数量为 3", "原结果", false, ids), { code: "conflict" });
+    assert.deepEqual(f.service.runs.get(f.run.id), before);
+  }
+});
+
+test("节点回答保留原问题，消息来源和范围保存在执行记录", t => {
   const f = fixture(t);
   const question = f.service.runs.ask(f.run.id, { question: "本次生成几份报告？", completedWork: "尚未开始节点" });
   const answer = f.service.supervisor.answer({ taskId: f.task.id, questionId: question.id, requestKey: "quantity", answer: "3" });
   observed(f, answer);
   const dispatch = f.service.runs.prepareTurn(f.run.id, "A", undefined, f.sessions, [answer.id]);
   const data = JSON.parse(dispatch.text.split("执行上下文：\n")[1]);
-  assert.deepEqual(data.userFacts, [{ messageId: answer.id, kind: "answer", runId: f.run.id, createdAt: answer.createdAt,
-    content: "3", questionId: question.id, question: question.question }]);
+  assert.deepEqual(data.request, { kind: "execute" });
+  assert.deepEqual(data.userMessages, [{ content: "3", createdAt: answer.createdAt, question: question.question }]);
+  const turn = f.service.runs.get(f.run.id).nodes[0].turns[0];
+  assert.deepEqual(turn.contextMessageIds, [answer.id]);
+  const source = f.service.conversations.get(turn.contextMessageIds[0]);
+  assert.equal(source.runId, f.run.id);
+  assert.equal(source.questionId, question.id);
 });
 
 test("大交付补充以有界引用传递，并只开放当前上游和本节点旧交付", t => {
@@ -260,6 +310,7 @@ test("大交付补充以有界引用传递，并只开放当前上游和本节�
   observed(f, input);
   const dispatch = f.service.runs.prepareTurn(input.runId, "A", "核对原交付后补充", f.sessions, [input.id]);
   const data = JSON.parse(dispatch.text.split("执行上下文：\n")[1]);
+  assert.deepEqual(data.request, { kind: "supplement", message: "核对原交付后补充" });
   assert.ok(dispatch.text.length < 10000);
   assert.equal(data.previousDelivery.length, large.length);
   assert.equal(data.previousDelivery.excerpt.length, 500);
@@ -270,6 +321,45 @@ test("大交付补充以有界引用传递，并只开放当前上游和本节�
   assert.throws(() => results.readInputFile(dispatch.inputFiles, old.nodes[1].resultFile), /authorized/);
   assert.equal(readFileSync(old.nodes[0].resultFile, "utf8"), large);
   assert.deepEqual(f.service.runs.get(f.run.id), old);
+});
+
+test("原会话澄清和补充保持会话身份，并提供本轮要求及当前交付文件", t => {
+  const f = fixture(t);
+  review(f, f.run.id, "A", "上游依据");
+  const first = f.service.runs.prepareTurn(f.run.id, "B", undefined, f.sessions);
+  assert.equal(first.kind, "open");
+  let starts = 0;
+  // 使用真实 worker 句柄和结构化账本；同步检查后立即关闭，不建立成功 ACP 会话。
+  const handle = f.sessions.open(first.nodeRunId, f.run.id, first.input, first.seconds,
+    () => {}, () => { starts++; }, () => assert.fail("会话不应超时"), () => {});
+  f.service.runs.record(f.run.id, "B", "session", "recorded-session", "初稿");
+  f.service.runs.completeTurn(f.run.id, "B", "end_turn");
+  const clarification = f.service.runs.prepareTurn(f.run.id, "B", "补充依据", f.sessions);
+  assert.equal(clarification.kind, "continue");
+  assert.equal(clarification.nodeRunId, first.nodeRunId);
+  assert.equal(f.sessions.get(first.nodeRunId), handle);
+  assert.deepEqual(JSON.parse(clarification.text.split("执行上下文：\n")[1]).request,
+    { kind: "clarify", message: "补充依据" });
+  assert.deepEqual(clarification.inputFiles, first.inputFiles);
+  f.service.runs.record(f.run.id, "B", "output", null, "完整交付");
+  f.service.runs.completeTurn(f.run.id, "B", "end_turn");
+  const previous = f.service.runs.accept(f.run.id, "B", 2, "完整交付", "满足节点要求");
+  const input = f.service.supervisor.send({ taskId: f.task.id, runId: f.run.id, requestKey: "active-supplement", execute: true, message: "补充最新说明" });
+  observed(f, input);
+  f.service.runs.accept(f.run.id, "A", 0, "", "上游仍有效", true);
+  const supplement = f.service.runs.prepareTurn(f.run.id, "B", input.content, f.sessions, [input.id]);
+  const data = JSON.parse(supplement.text.split("执行上下文：\n")[1]);
+  assert.equal(supplement.kind, "continue");
+  assert.equal(supplement.nodeRunId, first.nodeRunId);
+  assert.equal(f.sessions.get(first.nodeRunId), handle);
+  assert.deepEqual(data.request, { kind: "supplement", message: input.content });
+  assert.equal(data.previousDelivery.resultFile, previous.path);
+  assert.deepEqual(supplement.inputFiles, [...first.inputFiles, previous.path]);
+  assert.deepEqual(data.userMessages, [{ content: input.content, createdAt: input.createdAt }]);
+  const node = f.service.runs.get(f.run.id).nodes[1];
+  assert.equal(node.sessionId, "recorded-session");
+  assert.deepEqual(node.turns.map(turn => turn.sessionId), ["recorded-session", "recorded-session", "recorded-session"]);
+  return f.sessions.closeSession(first.nodeRunId).then(() => assert.equal(starts, 0));
 });
 
 test("记忆增量更新保留不可见 Run 笔记，支持显式删除并在 SDK 重开后保留", async t => {
@@ -362,6 +452,13 @@ test("idle dialogue does not reopen a Run; explicit supplementary Runs reuse onl
   assert.equal(actions.readMessage(historical.id).content, historical.content);
   assert.equal(view.execution.runId, supplemental.id);
   assert.deepEqual(view.execution.contextMessages.map(message => message.id), [chat.id, receipt.id]);
+  const currentView = coordinatorView(actions), historicalView = coordinatorView(actions, { runId: baseline.id });
+  assert.equal(currentView.view.messages, undefined);
+  assert.deepEqual(currentView.execution.contextMessages.items.map(message => message.messageId), [chat.id, receipt.id]);
+  assert.ok(historicalView.view.messages.items.some(message => message.messageId === historical.id));
+  assert.deepEqual(historicalView.execution.contextMessages, currentView.execution.contextMessages);
+  assert.equal(coordinatorView(actions, { messageId: historical.id }).eligibleForExecution, false);
+  assert.equal(coordinatorView(actions, { messageId: receipt.id }).eligibleForExecution, true);
   assert.throws(() => f.service.runs.prepareTurn(supplemental.id, "A", "Revise", f.sessions, [historical.id]), /contextMessageIds\[0\].*not eligible/);
   assert.ok(f.service.runs.get(supplemental.id).nodes.every(node => node.turns.length === 0));
   for (const node of ["A", "B"]) f.service.runs.accept(supplemental.id, node, 0, "", "Still satisfies this request; reuse with source attribution.", true);

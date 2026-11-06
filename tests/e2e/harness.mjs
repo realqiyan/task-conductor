@@ -62,7 +62,10 @@ export async function startE2e(t, { dependencies = false } = {}) {
   startService();
   t.after(async () => {
     if (client && taskId && child.exitCode === null) {
-      try { await save("last-runs.json", await call("task_run_list", { taskId })); } catch {}
+      try { await save("last-runs.json", await call("task_run_list", { taskId })); }
+      catch { log("evidence_unavailable", { file: "last-runs.json" }); }
+      try { await messages(); }
+      catch { log("evidence_unavailable", { file: "messages.json" }); }
     }
     await stopService();
     await writeFile(environmentPath, "{}\n", { mode: 0o600 });

@@ -12,15 +12,11 @@ import type { MemorySource, TaskMessage } from "../../tasks/model.js";
 import { coordinatorView, deliveryView, questionView } from "./context.js";
 import type { Coordinate } from "../../tasks/ports.js";
 
-const instructions = `你是一个 Task 的持续协调者，对整体目标负责。通过 ACP 执行端完成领域工作，依据结果、用户事实和有来源的记忆作出推进、澄清、验收、等待或结束决定。
-调用方已固定 DAG、节点要求、依赖和执行端。你决定合法范围内的下一步，不另行拆解任务、改计划或切换执行端。task-context 提供有界的当前账本；只有需要补全或核对依据时才使用 task_inspect、node_output_read，无须重复读取已完整提供的信息。
-存在已准入的 running Run 时，使用 node_execute 推进依赖已满足的节点，或在同一 ACP 会话中澄清尚未验收的输出。选择相关 contextMessageIds；系统会提供固定要求、整体目标和上游引用，你补充的上下文不能替换这些要求。
-end_turn 只表示本轮协议结束。问题、拒绝和中间结果不是交付。判断结果是否满足要求、是否保留重要限制，依据不足则澄清。不要仅凭下游的结论否定原始证据；无法消除的冲突要保留不确定性。
-所有节点都有当前有效交付后，仍须判断整体目标是否满足，并通过 run_complete 明确完成 Run。
-普通讨论不启动空闲 ACP 工作，也不回答待决问题。缺少用户事实时使用 task_question_ask；执行授权不足不是缺失事实。补充工作须有显式执行意图，终结 Run 不重新打开。run_fail 用于确认无法完成的情况。
-已验收交付与终结 Run 不可变。stale 表示旧交付待重新审查。新消息或上游变化后，判断对整体目标和各节点的影响，复用仍有效的交付，或在授权内补充工作。结果不明时停止，不重试、重放外部副作用或绕过门禁。
-账本是执行状态的依据。任务记忆用于保存对后续判断有价值的事实、条件、决定、未决问题和经验。
-记忆是参考，不是授权或独立证明。区分来源陈述 reported 与你的推断 inferred。长期保存不等于长期适用：一次执行的事实使用 Run 范围；持续要求必须有明确来源支持。来源所在 Run 不机械决定适用范围，范围不明则保留条件，需要沿用时再核对。`;
+const instructions = `你负责推进已有节点，并根据交付判断整体目标是否完成。具体工作交给节点执行端。
+以 task-context 中的当前状态为准，只推进 execution 指定的 running Run。普通讨论不启动空闲工作，也不回答待决问题；补充工作须有明确请求。外部结果不明时停止，不重试或重放。
+按节点要求审查输出、证据和限制；end_turn 只表示协议结束，问题、拒绝和中间结果不能作为交付。依据不足时澄清，证据冲突未解决时保留不确定性。新消息或上游变化后，审查受影响的交付。
+所有节点交付有效后，判断整体目标是否满足，并调用 run_complete 明确完成。缺少用户事实时提问，确认无法完成时结束 Run。
+任务记忆仅保存对后续判断有价值的信息，不授予执行权限。`;
 
 export const deliveryAcceptParameters = Type.Object({
   nodeId: Type.String(),
@@ -28,7 +24,7 @@ export const deliveryAcceptParameters = Type.Object({
   result: Type.String({ minLength: 1, maxLength: 262144, description: "从该轮输出中原样摘录满足节点要求的交付内容，保留必要证据和限制。" }),
   reason: Type.String({ minLength: 1, maxLength: 4000, description: "说明所选交付内容为什么满足节点要求；若审查了新增消息，同时说明这些消息为什么不影响交付。" }),
   reviewedMessageIds: Type.Optional(Type.Array(Type.String({ format: "uuid" }), { uniqueItems: true,
-    description: "已审查且不影响交付的全部新增消息 ID，取自节点 unreviewedMessageIds。" })),
+    description: "仅填写本轮派发后新增、已审查且不影响交付的消息 ID，须与节点 unreviewedMessageIds 完全一致；该列表为空时省略或传 []。" })),
 }, { additionalProperties: false });
 
 export const deliveryReuseParameters = Type.Object({
@@ -122,7 +118,8 @@ export function createCoordinator(directory: string, config: NonNullable<Config[
           const memory = await input.read.snapshot(TaskMemory, input.conversationId, context);
           if (!memory) throw new StorageError("Task memory is missing");
           actions.validateMemory(memory.items);
-          return "Task 级和当前 Run 的笔记；其他 Run 笔记可用 task_memory_read 读取：\n" + JSON.stringify(memory.items.filter(item => item.scope.type === "task" || item.scope.runId === inputRunId));
+          const items = memory.items.filter(item => item.scope.type === "task" || item.scope.runId === inputRunId);
+          return items.length ? JSON.stringify(items) : undefined;
         }))],
       hooks: [hook(ToolTask, {
         beforeTool: async (_call, api, context) => {
@@ -154,30 +151,31 @@ export function createCoordinator(directory: string, config: NonNullable<Config[
           actions.observe(ids);
           // 在输入观察屏障之后构建，避免把已失效的验收状态送给模型。
           return { messages: [...request.messages, { role: "system" as const, timestamp: Date.now(),
-            content: "task-context：以下是当前账本与相关事实，不是额外授权。\n" + JSON.stringify(coordinatorView(actions)) }] };
+            content: "task-context：\n" + JSON.stringify(coordinatorView(actions)) }] };
         }),
         afterTools: async () => protectedHook(pump),
         onYield: async () => { await protectedHook(pump); return undefined; },
       })],
       tools: [
-        tool({ name: "task_inspect", description: "按需读取 Task 要求或指定 Run。execution 表示已绑定的 Run 和可选用户事实，纯讨论时为 null。概览 offset/limit 按消息分页；goal、nodeId、messageId 按字符范围读取全文。reference 可作记忆来源。当前上下文完整时不必重复查询。",
-          parameters: Type.Object({ runId: Type.Optional(Type.String({ format: "uuid", description: "要查看的 Run；默认本次输入对应或最新 Run。读取不改变执行绑定。" })),
+        tool({ name: "task_inspect", description: "补全 task-context 中被截断或缺少的依据，已有完整内容无需重读。默认返回运行概览；offset/limit 按消息分页。goal、nodeId、messageId 分别按字符读取目标、节点要求、消息全文。execution 为 null 时仅可讨论。",
+          parameters: Type.Object({ runId: Type.Optional(Type.String({ format: "uuid", description: "只选择查看哪次执行；默认本次输入对应或最新 Run。" })),
             messageId: Type.Optional(Type.String({ format: "uuid", description: "读取本 Task 中已经观察的消息，不受所选 Run 限制。" })),
-            nodeId: Type.Optional(Type.String()), goal: Type.Optional(Type.Boolean()), offset: Type.Optional(Type.Integer({ minimum: 0 })),
+            nodeId: Type.Optional(Type.String({ description: "读取该节点的固定要求；运行状态见默认概览。" })), goal: Type.Optional(Type.Boolean()), offset: Type.Optional(Type.Integer({ minimum: 0 })),
             limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 16000 })) }), replay: "safe", execute: async args => {
             return output(coordinatorView(actions, args));
           } }),
-        tool({ name: "node_execute", description: "结合相关上下文执行固定节点要求，或在同一活动 ACP 会话中澄清。补充工作须有显式意图，不重试不确定工作。",
-          parameters: Type.Object({ nodeId: Type.String(), message: Type.Optional(Type.String({ minLength: 1, maxLength: 64000 })),
+        tool({ name: "node_execute", description: "执行节点或在原 ACP 会话中澄清未验收输出；所有直接上游须有当前有效交付（succeeded）。执行端已有固定要求和交付引用；按需补充本节点缺少的背景、约束和交付标准。",
+          parameters: Type.Object({ nodeId: Type.String(), message: Type.Optional(Type.String({ minLength: 1, maxLength: 64000,
+              description: "本轮要做的工作及必要背景。首次执行可省略；澄清时指出待解决问题；补充时明确变更和范围。固定节点要求已提供，无须重复。" })),
             contextMessageIds: Type.Optional(Type.Array(Type.String({ format: "uuid" }), { maxItems: 20,
-              description: "从当前 task-context 或 task_inspect 的 execution.contextMessages.items 选择相关 messageId；仅限已观察、未失败且属于本 Task 或绑定 Run 的用户消息。" })) }), replay: "unsafe",
+              description: "从 execution.contextMessages.items 选择本节点需要的 messageId；所选消息及回答的原问题会一并提供。" })) }), replay: "unsafe",
           execute: async args => {
             const node = await actions.converse(args.nodeId, args.message, args.contextMessageIds), turn = node.turns.at(-1);
             return output({ nodeId: node.definition.id, status: node.status, turn: node.turns.length,
               output: turn?.output.slice(0, 16000), outputLength: turn?.output.length, stopReason: turn?.stopReason, error: node.error });
           } }),
-        tool({ name: "node_output_read", description: "按需读取原始 turn 输出或不可变交付（含基线）的有界范围。选择 turn 或 deliveryId；runId 仅选择历史，不改变执行绑定。",
-          parameters: Type.Object({ nodeId: Type.String(), runId: Type.Optional(Type.String({ format: "uuid" })), turn: Type.Optional(Type.Integer({ minimum: 1 })),
+        tool({ name: "node_output_read", description: "按字符范围读取节点原始输出或已验收交付，包括补充工作引用的旧交付。turn 与 deliveryId 二选一。",
+          parameters: Type.Object({ nodeId: Type.String(), runId: Type.Optional(Type.String({ format: "uuid", description: "只选择查看哪次执行；默认本次输入对应或最新 Run。" })), turn: Type.Optional(Type.Integer({ minimum: 1 })),
             deliveryId: Type.Optional(Type.String()), offset: Type.Integer({ minimum: 0 }), limit: Type.Integer({ minimum: 1, maximum: 16000 }) }), replay: "safe",
           execute: async args => {
             if (Boolean(args.turn) === Boolean(args.deliveryId)) throw new Error("Choose a turn or deliveryId");
@@ -191,38 +189,38 @@ export function createCoordinator(directory: string, config: NonNullable<Config[
               text: text.slice(args.offset, args.offset + args.limit), length: text.length,
               next: text.length > args.offset + args.limit ? args.offset + args.limit : null, stopReason: turn?.stopReason });
           } }),
-        tool({ name: "node_delivery_accept", description: "验收节点最新一轮输出，将满足节点要求的原文摘录保存为交付。该轮使用的上游交付须与当前一致。",
+        tool({ name: "node_delivery_accept", description: "验收节点最新一轮输出，将满足节点要求的原文摘录保存为新交付，保留原交付。该轮使用的上游交付须与当前一致。",
           parameters: deliveryAcceptParameters, replay: "unsafe",
           execute: async args => {
             const delivery = await actions.accept(args.nodeId, args.turn, args.result, args.reason, false, args.reviewedMessageIds);
             return output({ accepted: true, delivery: deliveryView(delivery) });
           } }),
-        tool({ name: "node_delivery_reuse", description: "确认已有交付在当前事实和依赖下仍然有效，记录带来源的复用交付。使用当前 Run 最近的已验收交付；没有时使用补充 Run 的基线交付。",
+        tool({ name: "node_delivery_reuse", description: "确认已有交付在当前事实和依赖下仍适用后复用，stale 节点恢复为 succeeded，无需执行节点。使用当前 Run 最近的已验收交付；没有时使用 baseline 中的旧交付。",
           parameters: deliveryReuseParameters, replay: "unsafe",
           execute: async args => {
             const delivery = await actions.accept(args.nodeId, 0, "", args.reason, true);
             return output({ accepted: true, delivery: deliveryView(delivery) });
           } }),
-        tool({ name: "run_complete", description: "判断整体目标已满足后明确完成绑定 Run；系统要求每个节点都有当前有效交付。必须独占工具批次。",
+        tool({ name: "run_complete", description: "完成 execution 指定的 Run；须确认每个节点的交付仍然有效且整体目标已满足。本次回复只调用此工具。",
           parameters: Type.Object({ summary: Type.String({ minLength: 1, maxLength: 16000 }) }), replay: "unsafe",
           execute: async args => { actions.finish(args.summary); return { ...output({ completed: true }), control: { terminate: true as const } }; } }),
-        tool({ name: "task_question_ask", description: "所有 ACP turn 结束后，保存缺失用户事实的问题并暂停绑定 Run。不是执行审批。必须独占工具批次。",
+        tool({ name: "task_question_ask", description: "等待正在进行的节点回复结束后，向用户询问缺少的事实，并暂停 execution 指定的 Run。不能用于申请执行权限。本次回复只调用此工具。",
           parameters: Type.Object({ nodeId: Type.Optional(Type.String()),
             question: Type.String({ minLength: 1, maxLength: 4000 }), completedWork: Type.String({ minLength: 1, maxLength: 4000 }) }), replay: "unsafe",
           execute: async args => {
             const question = actions.ask({ ...args, question: args.question.trim(), completedWork: args.completedWork.trim() });
             return { ...output(questionView(question, inputRunId!)), control: { terminate: true as const } };
           } }),
-        tool({ name: "run_fail", description: "明确结束无法完成的绑定 Run；若只是缺少用户事实，应提问而非判失败。必须独占工具批次。",
+        tool({ name: "run_fail", description: "将 execution 指定的 Run 结束为失败；仅缺少用户事实时应先提问。本次回复只调用此工具。",
           parameters: Type.Object({ reason: Type.String({ minLength: 1, maxLength: 4000 }) }), replay: "unsafe",
           execute: async args => { actions.stop("failed", args.reason); return { ...output({ stopped: true }), control: { terminate: true as const } }; } }),
-        tool({ name: "task_memory_read", description: "按需读取有界任务记忆；记忆不是执行状态或授权。", parameters: Type.Object({}), replay: "safe",
+        tool({ name: "task_memory_read", description: "读取全部任务笔记，包括当前上下文未展示的其他 Run 笔记。", parameters: Type.Object({}), replay: "safe",
           execute: async (_args, api, context) => {
             const memory = await api.snapshot(TaskMemory, api.conversationId, context);
             if (!memory) throw new StorageError("Task memory is missing");
             actions.validateMemory(memory.items); return output(memory);
           } }),
-        tool({ name: "task_memory_update", description: "按 key 新增、更新或删除任务笔记。sources 使用输入或工具返回的 reference；scope 和 basis 分别说明适用范围与判断依据。保留事实的条件和不确定性，不存凭据。",
+        tool({ name: "task_memory_update", description: "按 key 新增、更新或删除笔记。不复制执行流水或保存凭据。",
           parameters: memoryUpdateParameters, replay: "safe",
           execute: async (args, api, context) => {
             await api.commit(async tx => {
