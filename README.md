@@ -12,8 +12,6 @@ The caller defines the plan and assigns an executor to each node. The coordinato
 
 Requires **Linux or macOS, Node.js 22.19+, and npm**. Using dsh requires **Node.js 24.9+**. Published packages include built runtime files.
 
-**The `0.1.6` release candidate includes the new dsh integration and has not been published.** Until publication, use the [local plugin tarball and matching service build](docs/host-integrations.md#未发布资产的本地验收) for dsh. The following commands install the published service.
-
 1. Install at least one native executor CLI (Pi, Codex, Claude Code, or OpenCode) and configure its native authentication and permissions. Administrators can also [register a local stdio ACP executor](docs/cli.md#自定义本机-acp-接入).
 2. Install and configure the service, including its coordinator model and credentials:
 

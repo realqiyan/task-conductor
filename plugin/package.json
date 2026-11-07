@@ -1,6 +1,6 @@
 {
   "name": "task-conductor-plugin",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "type": "module",
   "description": "在 Pi、dsh、Claude Code 和 Codex 中安装、配置并通过原生 MCP 工具使用 Task Conductor",
   "engines": { "node": ">=22.19.0", "dsh": ">=0.2.2-rc.1" },

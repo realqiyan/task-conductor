@@ -6,19 +6,19 @@
 
 1. 检查宿主、OS、Node/npm、已有命令和配置。服务及非 dsh 接入要求 Linux/macOS、Node.js 22.19+；dsh 要求 24.9+。使用 `node --version`、`npm --version`、`command -v task-conductor`，已找到时查询 `task-conductor --version`。
 2. 核对已有自定义 `--home` 和 MCP 连接。命令不在 PATH 时检查已知安装与 `npm prefix -g`，优先使用已有绝对路径，不另装一份修复 PATH。
-3. 服务缺失时，用宿主 shell 执行用户选定来源的安装。已发布版本使用 `npm install -g task-conductor`；新增 dsh 接入使用下一节的本地构建。检查退出码和版本，不因插件版本相同推断 registry 已有对应服务改动。
+3. 服务缺失时，用宿主 shell 执行用户选定来源的安装。已发布版本使用 `npm install -g task-conductor`；源码版本使用下一节的本地构建。检查退出码和版本，不因插件版本相同推断 registry 已有对应服务改动。
 4. 沿用宿主原生权限。权限或网络不足时报告失败，给出同一命令供用户终端执行，不自动 sudo、更改 prefix 或放宽策略。
 
-## 未发布 dsh 接入
+## 本地构建
 
-当前 `0.1.6` 候选版本包含新增 dsh 接入，尚未发布，发布前插件与服务均须来自同一源码或配套本地 tarball。收到已构建的包时安装其绝对路径；从源码准备时，在仓库根目录使用 Node.js 24.9+，dsh 原生插件命令需要 PATH 中的 pnpm，输出目录须已存在：
+插件与服务使用同一源码或配套本地 tarball。收到已构建的包时安装其绝对路径；从源码准备时，在仓库根目录使用 Node.js 24.9+，dsh 原生插件命令需要 PATH 中的 pnpm，输出目录须已存在：
 
 ```bash
 npm ci --ignore-scripts
 npm pack --pack-destination /absolute/artifacts
 node scripts/pack-plugin.mjs /absolute/artifacts
-npm install -g /absolute/artifacts/task-conductor-0.1.6.tgz
-dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plugin-0.1.6.tgz
+npm install -g /absolute/artifacts/task-conductor-0.1.7.tgz
+dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plugin-0.1.7.tgz
 ```
 
 `npm pack` 会构建服务。将 `existing-profile` 换成已有目标 profile，不重建或重置它；只安装插件 tarball 不需要构建服务。已有服务替换先按下一节停服备份。面向 registry 的 `task-conductor update` 不会获取未发布源码。
@@ -33,7 +33,7 @@ dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plu
 
 支持时使用 `task-conductor update`，自定义安装附加原有 `--home`，无需额外确认或 `--yes`。执行前核查活动及待回答 Run、停服备份 home 和 dataDir，并保持宿主断开；同版本也完整重启，后台原已停止时更新后仍会启动。命令只更新服务，不更新插件或执行端。
 
-已发布 `0.1.4` 等尚无 `update` 的旧版，或替换为上述未发布 tarball，走 `stop` → 同一 prefix 的 npm 安装 → 数据检查 → 重连。旧版细节见[升级入口](https://github.com/realqiyan/task-conductor/blob/master/docs/upgrades.md#旧版升级入口)。
+已发布 `0.1.4` 等尚无 `update` 的旧版，或替换为上述本地 tarball，走 `stop` → 同一 prefix 的 npm 安装 → 数据检查 → 重连。旧版细节见[升级入口](https://github.com/realqiyan/task-conductor/blob/master/docs/upgrades.md#旧版升级入口)。
 
 更新后按[注册或重连](#注册或重连)刷新宿主 stdio 进程，保留原注册；核对运行版本和只读 MCP 调用。失败时保留原数据并报告失败阶段，不自动迁移、回滚或重放工作。
 

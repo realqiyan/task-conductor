@@ -6,14 +6,14 @@ Pi、dsh、Claude Code 与 Codex 的接入资产，不含服务运行时依赖�
 
 服务与插件在同一仓库开发，作为两个包独立分发。插件包为 `task-conductor-plugin`，不要将服务包 `task-conductor` 当作 Pi 插件安装。
 
-**`0.1.6` 候选版本包含新增 dsh 接入，尚未发布。** 发布前使用同一源码打包的插件及匹配服务。dsh 要求 Node.js 24.9+；最低宿主版本见 [package.json](package.json)，当前仓库开发基线为 `0.2.2-rc.1`。在源码仓库根目录打包，输出目录须已存在：
+dsh 要求 Node.js 24.9+；最低宿主版本见 [package.json](package.json)，当前仓库开发基线为 `0.2.2-rc.1`。在源码仓库根目录打包，输出目录须已存在：
 
 ```bash
 node scripts/pack-plugin.mjs /absolute/artifacts
-dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plugin-0.1.6.tgz
+dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plugin-0.1.7.tgz
 ```
 
-将 `existing-profile` 换成已有目标 profile，不重建或重置它；原生插件命令需要 PATH 中的 pnpm。服务的本地 tarball/源码运行步骤见[安装参考](skills/using-task-conductor/references/installation.md#未发布-dsh-接入)。从目标项目目录重开该 profile。
+将 `existing-profile` 换成已有目标 profile，不重建或重置它；原生插件命令需要 PATH 中的 pnpm。服务的本地 tarball/源码运行步骤见[安装参考](skills/using-task-conductor/references/installation.md#本地构建)。从目标项目目录重开该 profile。
 
 Pi、Claude Code/Codex 的已发布包入口为：
 

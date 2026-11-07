@@ -10,7 +10,7 @@
 
 服务与插件在同一仓库开发，分别打包。服务包 `task-conductor` 提供 CLI 和运行依赖；插件包 `task-conductor-plugin` 仅包含宿主接入资产，没有服务运行时依赖或 npm 安装 hook。dsh SDK 声明为宿主提供的 `"*"` optional peers，不随插件安装另一份运行时。**不要用 `pi install npm:task-conductor` 安装插件。** 服务发行包不携带插件副本。
 
-源码 marketplace 固定选择插件包版本，不跟随 npm latest。**`0.1.6` 候选版本包含新增 dsh 接入，尚未发布**。发布前使用 dsh 时，安装[本地插件 tarball](#未发布资产的本地验收)及同一源码构建的服务；源码 marketplace 也须等对应版本发布后使用。已发布资产的证据见[验证说明](validation.md#宿主接入包)。
+源码 marketplace 固定选择插件包版本，不跟随 npm latest。未发布源码使用[本地插件 tarball](#未发布资产的本地验收)及同一源码构建的服务。已发布资产的证据见[验证说明](validation.md#宿主接入包)。
 
 ### Pi
 
@@ -25,7 +25,7 @@ pi install npm:task-conductor-plugin
 将下例 `existing-profile` 换成用户已有的目标 profile，tarball 使用本地打包输出的绝对路径；不重建或重置 profile：
 
 ```bash
-dsh plugin --profile existing-profile add /absolute/path/to/task-conductor-plugin-0.1.6.tgz
+dsh plugin --profile existing-profile add /absolute/path/to/task-conductor-plugin-0.1.7.tgz
 ```
 
 从目标项目目录启动该 profile。调用原生 `/using-task-conductor`，或由 `skill` 工具加载 `using-task-conductor`。服务缺失、setup 未完成或 MCP 连接失败时，skill 仍可发现。
@@ -79,7 +79,7 @@ pi install "$TASK_CONDUCTOR_SOURCE/plugin"
 
 # dsh：输出目录须已存在，按输出的绝对 tarball 路径安装
 node scripts/pack-plugin.mjs /absolute/artifacts
-dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plugin-0.1.6.tgz
+dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plugin-0.1.7.tgz
 
 # Claude/Codex：生成只含插件及本地索引的独立临时快照
 MARKETPLACE="$(node scripts/create-plugin-marketplace.mjs)"
@@ -120,7 +120,7 @@ Codex 的 hook 须先在 `/hooks` 中审查并信任；Pi/Claude 也沿用各自
 
 ## 引导如何安装与使用服务
 
-skill 先检查已有命令、Node/npm、安装目录和连接配置，沿用用户已给出的安装与配置约定。服务缺失时通过宿主 shell 安装指定来源；已发布服务使用 `npm install -g task-conductor`，未发布 dsh 接入使用上述本地构建来源。PATH 问题不需要第二份安装；权限不足时给出用户终端操作，不使用 sudo 或扩大宿主权限。
+skill 先检查已有命令、Node/npm、安装目录和连接配置，沿用用户已给出的安装与配置约定。服务缺失时通过宿主 shell 安装指定来源；已发布服务使用 `npm install -g task-conductor`，源码版本使用上述本地构建来源。PATH 问题不需要第二份安装；权限不足时给出用户终端操作，不使用 sudo 或扩大宿主权限。
 
 交互式 `task-conductor setup` 在用户终端收集隐藏凭据；非交互初始化使用选定参数和私有凭据文件，不把秘密放入会话或命令参数。完整规则见[部署说明](deployment.md)。包内参考文件可在插件缓存或独立安装后直接使用：
 

@@ -9,7 +9,7 @@
       "source": {
         "source": "npm",
         "package": "task-conductor-plugin",
-        "version": "0.1.6",
+        "version": "0.1.7",
         "registry": "https://registry.npmjs.org"
       },
       "policy": {

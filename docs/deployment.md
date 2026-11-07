@@ -1,6 +1,6 @@
 # 安装与运行
 
-支持 Linux 和 macOS，服务及非 dsh 接入要求 Node.js **22.19+** 与 npm；使用 dsh 或运行 dsh 集成测试要求 **24.9+**。已发布安装包包含运行产物，不需要源码或 TypeScript。本文描述当前实现；`0.1.6` 候选版本包含新增 dsh 接入，尚未发布，发布前使用下述[本地构建入口](#源码与未发布接入)。实际发布和平台证据见[验证说明](validation.md)。
+支持 Linux 和 macOS，服务及非 dsh 接入要求 Node.js **22.19+** 与 npm；使用 dsh 或运行 dsh 集成测试要求 **24.9+**。已发布安装包包含运行产物，不需要源码或 TypeScript。源码构建见[本地构建入口](#源码与未发布接入)。实际发布和平台证据见[验证说明](validation.md)。
 
 ## 安装与初始化
 
@@ -27,12 +27,12 @@ task-conductor setup --home /absolute/private/task-conductor \
 
 ## 源码与未发布接入
 
-新增 dsh 插件及其通知绑定需要配套的 `0.1.6` 服务支持。当前为未发布候选，使用同一源码构建插件和服务。在仓库根目录构建服务 tarball，输出目录须已存在：
+本地开发时，使用同一源码构建插件和服务。在仓库根目录构建服务 tarball，输出目录须已存在：
 
 ```bash
 npm ci --ignore-scripts
 npm pack --pack-destination /absolute/artifacts
-npm install -g /absolute/artifacts/task-conductor-0.1.6.tgz
+npm install -g /absolute/artifacts/task-conductor-0.1.7.tgz
 ```
 
 `npm pack` 的 prepack 会构建服务；开发依赖含 dsh，因此此源码路径使用 Node.js 24.9+。首次安装后运行 `task-conductor setup`；替换已有安装先按[升级流程](upgrades.md)检查工作、停服备份，再在同一 prefix 安装并完整重连。不要用面向 registry 的 `task-conductor update` 获取未发布源码。

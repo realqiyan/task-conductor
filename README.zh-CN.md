@@ -28,7 +28,7 @@
 
 ## 使用入口
 
-Linux/macOS，服务及非 dsh 接入要求 Node.js **22.19+**，dsh 要求 **24.9+**。已发布 npm 安装包自带运行产物；`0.1.6` 候选版本包含新增 dsh 接入，尚未发布，发布前使用[本地插件 tarball 和对应服务构建](docs/host-integrations.md#未发布资产的本地验收)。实际发布状态及平台验收范围见[发布证据](docs/validation.md#npm-发布候选验证)。
+Linux/macOS，服务及非 dsh 接入要求 Node.js **22.19+**，dsh 要求 **24.9+**。已发布 npm 安装包自带运行产物。实际发布状态及平台验收范围见[发布证据](docs/validation.md#npm-发布候选验证)。
 
 ```bash
 npm install -g task-conductor

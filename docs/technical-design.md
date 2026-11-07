@@ -27,7 +27,7 @@
 | 离线数据升级 | [迁移入口](../scripts/migrate.mjs)、[格式校验](../src/tasks/storage/store.ts)、[SDK 存储校验](../src/integrations/coordinator/storage.ts) | [migration.test.mjs](../tests/migration.test.mjs)、[升级说明](upgrades.md) |
 | 安装、更新与发布 | [命令入口](../bin/task-conductor.mjs)、[setup](../scripts/setup.mjs)、[包更新](../scripts/update.mjs)、[安装库](../scripts/install-lib.mjs)、[包门禁](../scripts/pack-release.mjs)、[发布准入](../scripts/check-release.mjs)、[工作流](../.github/workflows/) | [install.test.mjs](../tests/install.test.mjs)、[setup.test.mjs](../tests/setup.test.mjs)、[update.test.mjs](../tests/update.test.mjs)、[release.test.mjs](../tests/release.test.mjs)、[升级说明](upgrades.md)、[发布说明](release.md) |
 
-宿主安装资产位于 [plugin](../plugin/)，包含 Pi、dsh、Claude Code/Codex 原生入口、`using-task-conductor`、只读启动检查及 [Pi/dsh 会话通知](notifications.md)，不进入服务运行时依赖图。dsh SDK 是宿主提供的 optional peers，插件无运行时依赖或安装 hook；[仓库开发依赖](../package.json)锁定 dsh `0.2.2-rc.1`，运行其测试需要 Node.js 24.9+，服务和非 dsh 路径仍支持 22.19+。`0.1.6` 候选版本包含这些新增资产，尚未发布，安装来源见[接入说明](host-integrations.md)。
+宿主安装资产位于 [plugin](../plugin/)，包含 Pi、dsh、Claude Code/Codex 原生入口、`using-task-conductor`、只读启动检查及 [Pi/dsh 会话通知](notifications.md)，不进入服务运行时依赖图。dsh SDK 是宿主提供的 optional peers，插件无运行时依赖或安装 hook；[仓库开发依赖](../package.json)锁定 dsh `0.2.2-rc.1`，运行其测试需要 Node.js 24.9+，服务和非 dsh 路径仍支持 22.19+。安装见[接入说明](host-integrations.md)。
 
 [Pi 扩展](../plugin/pi-extension.js)与[dsh 插件](../plugin/dsh.js)都复用 CLI 检查摘要和共享 skill。dsh 的 skill provider 在检查之前注册，首轮原生 skill 目录可发现引导；异常通过原生 notice 提供上下文。每个非子代理根会话通过检查后，在自己的 Agent 作用域加载原生 MCP，固定 stdio cwd 为 session header 的 cwd；工具守卫拒绝子代理借用。`/task-conductor status` 查询状态，`connect` 重建该会话的连接；没有第二套模型循环或浏览器端连接所有者。
 
