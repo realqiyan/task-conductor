@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { requestTimestamp } from "../shared/validation.js";
-import { cronScheduleData, nodeData, messageData, replyData, runStatusSchema, taskData, taskScheduleControlData } from "../tasks/validation.js";
+import { cronScheduleData, nodeData, messageData, replyData, runStatusSchema, taskData, taskUpdateData } from "../tasks/validation.js";
 
 export const nodeSchema = nodeData.extend({
   id: nodeData.shape.id.describe("任务内由调用方定义的唯一节点 ID，供 dependsOn 引用；不同于 Run UUID。"),
@@ -36,12 +36,13 @@ export const taskRunListSchema = taskListSchema.extend({
   taskId: z.string().uuid().optional().describe("按 Task UUID 过滤 Run。省略则查询所有 Task；不存在的 Task ID 返回空页。"),
   status: runStatusSchema.optional().describe("按 Run 状态过滤；省略则包含所有结果。waiting_input 用于查找问题；running 也包括等待调度的 Run，不只指活动 ACP 工作。"),
 });
-export const taskScheduleControlSchema = taskScheduleControlData.extend({
-  taskId: taskIdSchema.shape.taskId,
-  action: taskScheduleControlData.shape.action.describe("pause 保留并暂停下一次触发；resume 恢复但不补跑，过期 Cron 时点跳到未来，过期 now/once 变为 completed；cancel 永久取消未来触发。pause/resume 要求仍有触发时点；存在中断节点时拒绝 resume。"),
+const cronScheduleSchema = cronScheduleData.safeExtend({
+  type: z.literal("cron").describe("周期日历时点；首次匹配严格晚于计划保存时间，不以上一 Run 完成为起点。"),
+  expression: z.string().trim().min(1).max(200).describe("五字段：分、时、日、月、星期，例如 0 9 * * 1-5。不支持秒、@ 别名或散列 H 字段。日与星期均受限时按 OR 匹配。"),
+  timezone: z.string().trim().min(1).max(100).describe("必填 IANA 时区，例如 Asia/Shanghai 或 UTC；不从服务环境推断。夏令时遵循 cron-parser 的日历规则。"),
 });
 export const taskSchema = taskData.extend({
-  requestKey: taskData.shape.requestKey.describe("调用方指定的创建去重键，作用域为规范工作目录。重提时保持不变：规范化参数相同则返回已有任务，包括已取消或完成任务；参数变化则冲突。新键表示新工作，不是重试。"),
+  requestKey: taskData.shape.requestKey.describe("规范工作目录内的创建去重键。同键重提返回当前任务，忽略 name、schedule；其余参数及通知归属须一致。更新使用 task_update。"),
   name: z.string().trim().min(1).max(200).describe("用于显示的简短任务名称。"),
   prompt: z.string().trim().min(1).max(64_000).describe("供协调者判断的整体目标与最终交付标准。执行端所需背景和具体要求写入节点 prompt；整体目标不向各节点全文广播。"),
   nodes: z.array(nodeSchema).min(1).max(20).describe("完整节点列表，创建后不能修改；单步任务使用一个节点。dependsOn 决定依赖顺序，数组位置不决定执行顺序；独立节点允许并发。"),
@@ -52,11 +53,7 @@ export const taskSchema = taskData.extend({
       type: z.literal("once").describe("指定未来时间的单次触发。"),
       at: requestTimestamp.describe("带 UTC Z 或数字时区偏移的未来 ISO 8601 时间，规范化为 UTC。"),
     }).strict(),
-    cronScheduleData.safeExtend({
-      type: z.literal("cron").describe("周期日历时点；首次匹配严格晚于创建时间，不以上一 Run 完成为起点。"),
-      expression: z.string().trim().min(1).max(200).describe("五字段：分、时、日、月、星期，例如 0 9 * * 1-5。不支持秒、@ 别名或散列 H 字段。日与星期均受限时按 OR 匹配。"),
-      timezone: z.string().trim().min(1).max(100).describe("必填 IANA 时区，例如 Asia/Shanghai 或 UTC；不从服务环境推断。夏令时遵循 cron-parser 的日历规则。"),
-    }),
+    cronScheduleSchema,
   ]).describe("计划触发时间，实际开始时间取决于调度。迟到超过 30 秒或与本 Task 正在运行/等待的 Run 重叠时跳过，不排队补跑。"),
   expiresAt: requestTimestamp.optional().describe("新 Run 和新 ACP 工作的截止时间，不是完成超时。须晚于首次触发，不终止已开始的 ACP turn。使用带时区的 ISO 8601；省略则不设截止时间。"),
   maxRunSeconds: taskData.shape.maxRunSeconds.default(1800).describe("Run 从协调开始计算的执行时长，单位秒，包含 ACP 执行但扣除等待用户的时间；独立于 expiresAt 和节点会话寿命。"),
@@ -64,3 +61,14 @@ export const taskSchema = taskData.extend({
   maxNodeTurns: taskData.shape.maxNodeTurns.default(3).describe("每个 Run 内每个节点最多 ACP turn 数，包括首轮工作、澄清和显式授权的补充工作，不允许自动重试。"),
   inputWaitSeconds: taskData.shape.inputWaitSeconds.default(86400).describe("每个用户回答的等待秒数。需保留尚未验收的 ACP 会话以续接时，还受 300 秒上限和节点剩余寿命约束。以问题 expiresAt 和非空 sessionExpiresAt 中较早者为准。"),
 });
+export const taskUpdateSchema = taskUpdateData.safeExtend({
+  taskId: taskIdSchema.shape.taskId,
+  expected: taskUpdateData.shape.expected.extend({ nextAt: requestTimestamp.nullable() })
+    .describe("已读取的任务配置：name、schedule 取自 task_get.input，scheduleStatus、nextAt 取自顶层。任一值变化时返回 conflict，需重新读取。"),
+  name: z.string().trim().min(1).max(200).optional().describe("显示名称，所有触发状态均可修改。"),
+  schedule: z.discriminatedUnion("type", [
+    z.object({ type: z.literal("once"), at: requestTimestamp.describe("带时区的未来 ISO 8601 时间。") }).strict(),
+    cronScheduleSchema,
+  ]).optional().describe("替换计划；规则变化后从当前时间重算 nextAt，须早于任务截止时间。保留暂停状态。"),
+  enabled: z.boolean().optional().describe("false 暂停、true 恢复未来触发。恢复不补跑错过的时点；存在不确定执行结果时拒绝启用。"),
+}).describe("仅提交要修改的字段，至少一项。schedule 和 enabled 仅适用于仍有未来触发且未到截止时间的 active/paused 任务。");

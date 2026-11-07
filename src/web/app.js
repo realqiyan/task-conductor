@@ -70,7 +70,7 @@ async function render(background = false) {
   session.loading = true;
   if (!background) { main.setAttribute("aria-busy", "true"); main.inert = true; document.querySelector("#updated").textContent = "正在加载…"; }
   const context = {
-    ...controls, link, signal: lifetime.signal,
+    ...controls, link, canLeave, signal: lifetime.signal,
     report: error => { if (!lifetime.signal.aborted) report(error); },
     request: (path, body) => api.request(path, body, lifetime.signal),
     notify: (text, tone) => { if (!lifetime.signal.aborted) notify(text, tone); },

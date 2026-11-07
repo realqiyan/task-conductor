@@ -36,7 +36,13 @@ export const taskData = z.object({
   maxRunSeconds: z.number().int().min(1).max(86_400), maxModelCalls: z.number().int().min(1).max(200),
   maxNodeTurns: z.number().int().min(1).max(10), inputWaitSeconds: z.number().int().min(1).max(604800),
 }).strict();
-export const taskScheduleControlData = z.object({ taskId: z.string().uuid(), action: z.enum(["pause", "resume", "cancel"]) }).strict();
+export const taskUpdateData = z.object({
+  taskId: z.string().uuid(),
+  expected: z.object({ name: text(200), schedule: scheduleData, scheduleStatus: taskStatusSchema, nextAt: timestamp.nullable() }).strict(),
+  name: text(200).optional(),
+  schedule: z.discriminatedUnion("type", [z.object({ type: z.literal("once"), at: timestamp }).strict(), cronScheduleData]).optional(),
+  enabled: z.boolean().optional(),
+}).strict().refine(input => input.name !== undefined || input.schedule !== undefined || input.enabled !== undefined, "至少提供一个需要更新的字段");
 export const messageData = z.object({
   taskId: z.string().uuid(), requestKey: identifier, message: text(16000),
   runId: z.string().uuid().optional(), execute: z.boolean().optional(),

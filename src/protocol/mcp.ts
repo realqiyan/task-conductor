@@ -5,7 +5,7 @@ import { z } from "zod";
 import { errorCode, errorText, StorageError } from "../shared/errors.js";
 import type { Delivery, Task, TaskMessage, TaskRun } from "../tasks/model.js";
 import type { TaskApi } from "./services.js";
-import { messageListSchema, messageSchema, replySchema, taskSchema, taskScheduleControlSchema, taskIdSchema, runIdSchema, taskListSchema, taskRunListSchema } from "./task-contract.js";
+import { messageListSchema, messageSchema, replySchema, taskSchema, taskUpdateSchema, taskIdSchema, runIdSchema, taskListSchema, taskRunListSchema } from "./task-contract.js";
 import { executorsOutput, messageOutput, mcpJsonSchema, pageOutput, runOutput, runSummaryOutput, serverInstructions, statusOutput, taskOutput, taskSummaryOutput, toolOutput } from "./mcp-contract.js";
 import { notificationOriginData } from "../tasks/validation.js";
 import { version } from "../infrastructure/version.js";
@@ -59,9 +59,9 @@ export function createMcpServer(service: TaskApi, fatal: (error: unknown) => voi
     });
   register("task_get", "读取任务完整定义与未来触发状态。scheduleStatus=completed 只表示没有剩余触发，不表示执行成功。执行结果见 task_run_list(taskId)。",
     taskIdSchema, taskOutput, input => taskView(service.definitions.get(input.taskId), service.runs.active()));
-  register("task_schedule_control", "只暂停、恢复或取消未来触发，并返回更新后的任务。resume 可能启用后台执行，但不能清除不确定结果；MCP 不提供强制恢复。不修改定义、删除历史或停止当前 Run；停止 Run 使用 task_run_cancel。",
-    taskScheduleControlSchema, taskOutput, input => taskView(service.definitions.controlSchedule(input), service.runs.active()),
-    { readOnly: false, destructive: true, idempotent: true, openWorld: true });
+  register("task_update", "更新任务名称和未来触发配置，返回更新后的任务。当前 Run、任务会话和历史记录保留。",
+    taskUpdateSchema, taskOutput, input => taskView(service.definitions.update(input), service.runs.active()),
+    { readOnly: false, destructive: true, idempotent: false, openWorld: true });
   register("task_run_list", "查询 Run 或轮询摘要进度，按创建时间升序。taskId 限定任务，status=waiting_input 查找问题。空页可能表示尚未触发，不表示失败。用 next 继续；交付和原始输出见 task_run_get。",
     taskRunListSchema, pageOutput(runSummaryOutput), input => {
       const page = service.runs.list(input.taskId, input.after, input.limit, input.status);
@@ -80,7 +80,7 @@ export function createMcpServer(service: TaskApi, fatal: (error: unknown) => voi
   register("task_question_answer", "回答本 Task 的具体待决问题。返回持久输入回执，只续接所属等待 Run。普通消息不代替回答。检查问题期限、归属和 ACP 保留状态；回答不授予权限，也不重放不确定副作用。",
     replySchema, messageOutput, input => messageView(service.supervisor.answer(input)),
     { readOnly: false, destructive: false, idempotent: true, openWorld: true });
-  register("task_run_cancel", "取消一个运行或等待中的 Run；请求返回时，执行进程可能尚未退出。已结束的 Run 保持原结果，不回滚外部效果或删除历史。可能暂停但不取消未来触发。如需同时停止未来触发与当前执行，先 task_schedule_control(action=cancel)，再取消活动 Run。",
+  register("task_run_cancel", "取消运行或等待中的 Run，已结束的 Run 保持原结果；执行进程随后退出，已发生的外部操作不回滚。要同时暂停未来触发，先用 task_update 设置 enabled=false。",
     runIdSchema, runOutput, input => runView(service.supervisor.cancel(input.runId)),
     { readOnly: false, destructive: true, idempotent: true, openWorld: true });
 

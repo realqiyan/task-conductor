@@ -20,6 +20,7 @@
 | Task 持续对话、Document 记忆与补充交付 | [会话设计](docs/task-conversation-plan.md) |
 | 查询项目术语 | [词汇表](CONTEXT.md) |
 | 查找实现与对应测试 | [代码导航](docs/technical-design.md) |
+| 编写提示、工具说明、技能及调整上下文加载 | [模型指令编写原则](docs/model-instruction-guidelines.md) |
 | 查询测试命令、真实验收及缺口 | [验证说明](docs/validation.md) |
 | npm 候选验收、GitHub Actions 与受控发布 | [发布说明](docs/release.md) |
 | 修改项目 | [开发指南](AGENTS.md)、[架构原则](docs/architecture-guidelines.md) |

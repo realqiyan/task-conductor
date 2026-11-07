@@ -57,10 +57,10 @@ set 从终端隐藏输入或 stdin 读取凭据，并移除末尾的一个换行
 此处不管理服务令牌、管理员令牌或执行端原生认证。`,
   task: `task list [--after 整数] [--limit 整数]
 task show ID
-task schedule pause 任务ID [--yes]
-task schedule resume 任务ID [--yes]
-task schedule cancel 任务ID [--yes]
-仅修改未来触发，当前运行继续。恢复不补跑错过的触发；取消不可撤销。`,
+task update 任务ID --file 文件路径 [--yes]
+update 文件包含 {expected, name?, schedule?, enabled?}，expected 取自 task show 的 input.name、input.schedule、scheduleStatus、nextAt（转为 ISO 时间或 null）。
+任务更新支持名称、单次/Cron 计划及启停；当前运行继续，历史记录保留。
+enabled=false 暂停未来触发，true 恢复；恢复不补跑错过的触发。`,
   run: `run list [--task ID] [--after 整数] [--limit 整数]
 run show ID
 show 显示节点、turn、已验收交付、错误、问题及已有回复。`,
@@ -143,7 +143,7 @@ export async function runCli(command: string, args: string[], resolveHome: (home
   if (options.help || (positionals.length === 0 && !["status", "restart"].includes(command))) {
     console.log("用法：task-conductor " + help[command] + "\n" + common); return;
   }
-  const schedule = command === "task" && positionals[0] === "schedule"; const [action, id] = schedule ? positionals.slice(1) : positionals;
+  const [action, id] = positionals;
   let allowed: string[] = [], count = 1;
   switch (command) {
     case "status": case "restart": count = 0; break;
@@ -176,9 +176,9 @@ export async function runCli(command: string, args: string[], resolveHome: (home
       if (action !== "set" && action !== "delete") throw new Error("未知凭据操作");
       count = 2; allowed = action === "set" ? ["stdin", "yes"] : ["yes"]; break;
     case "task": case "run":
-      if (!schedule && action === "list") allowed = ["after", "limit", ...(command === "run" ? ["task"] : [])];
-      else if (!schedule && action === "show") count = 2;
-      else if (schedule && ["pause", "resume", "cancel"].includes(action!)) { count = 3; allowed = ["yes"]; }
+      if (action === "list") allowed = ["after", "limit", ...(command === "run" ? ["task"] : [])];
+      else if (action === "show") count = 2;
+      else if (command === "task" && action === "update") { count = 2; allowed = ["file", "yes"]; }
       else throw new Error("未知 " + command + " 操作");
   }
   if (positionals.length !== count) throw new Error("参数多余或缺失；请查看 " + command + " --help");
@@ -238,11 +238,12 @@ export async function runCli(command: string, args: string[], resolveHome: (home
       if (text(options, "task")) query.set("taskId", text(options, "task")!);
       output(await client.request("/" + command + "s?" + query));
     } else if (action === "show") output(await client.request("/" + command + "s/" + encodeURIComponent(id!)));
-    else {
-      const task = await client.request("/tasks/" + encodeURIComponent(id!));
-      process.stderr.write(JSON.stringify({ action, task }) + "\n仅修改未来触发，当前运行继续。恢复不补跑错过的触发；取消不可撤销。\n");
-      await confirm(options, "修改未来触发？");
-      output(await client.request("/task-schedule-control", { taskId: id, action }));
+    else if (action === "update") {
+      const patch = readJson(text(options, "file", true)!);
+      if (!patch || typeof patch !== "object" || Array.isArray(patch) || "taskId" in patch) throw new Error("更新文件须为不含 taskId 的 JSON 对象");
+      process.stderr.write(JSON.stringify({ taskId: id, ...patch }) + "\n");
+      await confirm(options, "保存任务更新？");
+      output(await client.request("/task-update", { ...patch, taskId: id }));
     }
     return;
   }

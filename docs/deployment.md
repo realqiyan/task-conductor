@@ -32,7 +32,7 @@ task-conductor setup --home /absolute/private/task-conductor \
 ```bash
 npm ci --ignore-scripts
 npm pack --pack-destination /absolute/artifacts
-npm install -g /absolute/artifacts/task-conductor-0.1.7.tgz
+npm install -g /absolute/artifacts/task-conductor-0.1.8.tgz
 ```
 
 `npm pack` 的 prepack 会构建服务；开发依赖含 dsh，因此此源码路径使用 Node.js 24.9+。首次安装后运行 `task-conductor setup`；替换已有安装先按[升级流程](upgrades.md)检查工作、停服备份，再在同一 prefix 安装并完整重连。不要用面向 registry 的 `task-conductor update` 获取未发布源码。
@@ -64,7 +64,7 @@ Pi、dsh、Claude Code 和 Codex 可使用[可安装接入包](host-integrations
 
 任务显式提供 `workspace` 时使用该目录；省略时使用本次 stdio 进程的启动目录。宿主须从目标项目目录启动命令，或在创建任务时明确传目录。服务不使用共用后台的启动目录猜测项目，也不根据 MCP roots 或宿主名称推断。直接 HTTP 接入需自行携带服务 token，并在 `task_create` 中指定目录。
 
-创建时校验目录存在并规范化，随后固定到任务；周期执行也使用同一目录。需要修改目录时取消旧任务的未来触发，再创建新任务。创建请求按最终目录和 `requestKey` 去重，不同项目可独立使用同一请求键。契约见 [task-contract.ts](../src/protocol/task-contract.ts)，决策原因见[目录来源](adr/0002-mcp-workspace-source.md)与[请求去重](adr/0001-task-request-scope.md)。
+创建时校验目录存在并规范化，随后固定到任务；周期执行也使用同一目录。需要修改目录时暂停旧任务的未来触发，再创建新任务。创建请求按最终目录和 `requestKey` 去重，不同项目可独立使用同一请求键。契约见 [task-contract.ts](../src/protocol/task-contract.ts)，决策原因见[目录来源](adr/0002-mcp-workspace-source.md)与[请求去重](adr/0001-task-request-scope.md)。
 
 ## 执行端发现与准备
 

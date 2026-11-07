@@ -10,7 +10,7 @@ dsh 要求 Node.js 24.9+；最低宿主版本见 [package.json](package.json)，
 
 ```bash
 node scripts/pack-plugin.mjs /absolute/artifacts
-dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plugin-0.1.7.tgz
+dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plugin-0.1.8.tgz
 ```
 
 将 `existing-profile` 换成已有目标 profile，不重建或重置它；原生插件命令需要 PATH 中的 pnpm。服务的本地 tarball/源码运行步骤见[安装参考](skills/using-task-conductor/references/installation.md#本地构建)。从目标项目目录重开该 profile。

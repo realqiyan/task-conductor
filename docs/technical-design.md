@@ -35,6 +35,20 @@
 
 [检查测试](../tests/host-preflight.test.mjs)覆盖只读摘要和故障分类；[独立包门禁](../scripts/pack-plugin.mjs)不构建或安装服务。[接入测试](../tests/host-integrations.test.mjs)、[dsh SDK 用例](../tests/dsh-integration.test.mjs)和[stdio 用例](../tests/stdio.test.mjs)是安装、会话作用域与真实工具调用的验证入口；实际结果由[验证说明](validation.md)维护。
 
+## 模型可见上下文
+
+修改模型可见内容或其加载方式时遵循[模型指令编写原则](model-instruction-guidelines.md)。MCP 宿主、内部协调者和 ACP 节点使用各自的模型上下文；检查首轮与续接时，从接收者的实际组装入口追踪内容。
+
+| 接收者与内容 | 入口 |
+| --- | --- |
+| MCP 宿主：服务引导、工具及字段说明 | [服务引导与输出契约](../src/protocol/mcp-contract.ts)、[工具注册](../src/protocol/mcp.ts)、[任务输入契约](../src/protocol/task-contract.ts)；HTTP 与 [stdio](../src/protocol/stdio.ts)共用服务引导 |
+| 宿主：技能发现、按需参考资料与启动异常提示 | [共享技能](../plugin/skills/using-task-conductor/SKILL.md)、[启动检查与提示](../plugin/scripts/preflight.mjs)、[Pi](../plugin/pi-extension.js)、[dsh](../plugin/dsh.js)、[Claude/Codex hook](../plugin/scripts/session-start.mjs) |
+| Pi/dsh 宿主：后台事件与后续操作提示 | [共用通知内容](../plugin/scripts/notification-common.mjs)、[Pi 投递](../plugin/scripts/notifications.mjs)、[dsh 投递](../plugin/scripts/dsh-notifications.mjs) |
+| 协调者：角色、工具、当前任务状态与记忆 | [角色、工具与 SDK hooks](../src/integrations/coordinator/coordinator.ts)、[有界账本视图](../src/integrations/coordinator/context.ts)、[Document 与更新契约](../src/integrations/coordinator/memory.ts) |
+| ACP 执行端：节点要求、本轮背景和交付引用 | [派发组装](../src/tasks/execution-context.ts)、[派发调用](../src/tasks/supervisor.ts)、[ACP prompt](../src/integrations/acp/connection.ts)；原生提示、工具与配置由执行端管理 |
+
+协调状态、选定事实、记忆范围及节点首次和续接上下文的设计见[会话设计](task-conversation-plan.md)。宿主的技能发现和启动引导见[宿主接入](host-integrations.md)，事件进入原会话的时机及去重见[通知设计](notifications.md)。协调历史与压缩沿用 durable SDK；本项目没有另设摘要模型循环。实际验证范围由[验证说明](validation.md)维护。
+
 ## 依赖与一致性边界
 
 依赖方向由[架构原则](architecture-guidelines.md#职责与依赖)定义，[依赖检查器](../scripts/check-boundaries.mjs)随 `npm run check` 执行。模块分类、允许引用及 Run 写入口检查以该脚本为准；新增文件须明确归属。

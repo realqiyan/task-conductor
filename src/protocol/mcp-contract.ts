@@ -54,10 +54,10 @@ const executorSnapshotOutput = z.object({
 
 export const taskOutput = z.object({
   notification: notificationOriginData.nullable().describe("创建时绑定的会话通知归属；null 表示未启用，不代表已投递或用户已读。"),
-  taskId: z.string().uuid().describe("Task UUID，用于 task_get、task_schedule_control 和 task_run_list。"),
+  taskId: z.string().uuid().describe("任务的持久 UUID。"),
   conversationInitialized: z.boolean().describe("是否曾建立任务协调会话。"),
   activeRun: z.object({ runId: z.string().uuid(), status: z.enum(["running", "waiting_input"]) }).strict().nullable(),
-  input: taskInputOutput.describe("规范化后的创建请求，包含默认值和规范工作目录。"),
+  input: taskInputOutput.describe("当前任务配置，包含默认值和规范工作目录。"),
   workspace: absolutePath.describe("所有 Run 固定使用的规范绝对目录；不是沙箱或授权。"),
   executors: z.record(identifier, executorSnapshotOutput).describe("创建时选定的执行端，以 executorId 为键；当前状态见 executor_list。"),
   scheduleStatus: taskStatusSchema.describe(taskStatusDescription),

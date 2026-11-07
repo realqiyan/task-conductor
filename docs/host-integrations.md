@@ -25,7 +25,7 @@ pi install npm:task-conductor-plugin
 将下例 `existing-profile` 换成用户已有的目标 profile，tarball 使用本地打包输出的绝对路径；不重建或重置 profile：
 
 ```bash
-dsh plugin --profile existing-profile add /absolute/path/to/task-conductor-plugin-0.1.7.tgz
+dsh plugin --profile existing-profile add /absolute/path/to/task-conductor-plugin-0.1.8.tgz
 ```
 
 从目标项目目录启动该 profile。调用原生 `/using-task-conductor`，或由 `skill` 工具加载 `using-task-conductor`。服务缺失、setup 未完成或 MCP 连接失败时，skill 仍可发现。
@@ -79,7 +79,7 @@ pi install "$TASK_CONDUCTOR_SOURCE/plugin"
 
 # dsh：输出目录须已存在，按输出的绝对 tarball 路径安装
 node scripts/pack-plugin.mjs /absolute/artifacts
-dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plugin-0.1.7.tgz
+dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plugin-0.1.8.tgz
 
 # Claude/Codex：生成只含插件及本地索引的独立临时快照
 MARKETPLACE="$(node scripts/create-plugin-marketplace.mjs)"

@@ -40,4 +40,6 @@ export type MemoryScope = { type: "task" } | { type: "run"; runId: string };
 export type MemoryItem = { key: string; kind: "fact" | "decision" | "caution" | "lesson" | "question";
   text: string; sources: MemorySource[]; scope: MemoryScope; basis: "reported" | "inferred" };
 export type EndStatus = "failed" | "interrupted" | "cancelled" | "timed_out";
-export type TaskScheduleControl = { taskId: string; action: "pause" | "resume" | "cancel" };
+export type TaskUpdate = { taskId: string;
+  expected: { name: string; schedule: Schedule; scheduleStatus: Task["scheduleStatus"]; nextAt: string | null };
+  name?: string; schedule?: Exclude<Schedule, { type: "now" }>; enabled?: boolean };

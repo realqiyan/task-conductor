@@ -64,6 +64,8 @@ git diff --check
 
 `0.1.3` 基线上的控制台重构工作树，macOS、Node 24.22.2、Chrome 156.0.8078.81：通过隔离的真实服务验证登录、分页与返回、运行详情、触发取消、执行端注册、草稿保护、配置预览、密钥独立保存及重启生效；1440px 和 390px 布局通过。刷新和重启后清除登录，不写 Cookie 或浏览器存储；不可信任务名称按文本显示，页面无脚本异常、CSP 错误或外部资源请求。证据：`/tmp/task-conductor-console-review/report.json`，同目录保存交互脚本与截图。注册使用真实失败程序，不启动 ACP 或模型任务。
 
+`0.1.8` 候选在 macOS、Node 24.22.2、真实 Chrome headless 中验证名称与单次时间保存、Cron/时区替换、暂停和恢复均通过 `task_update`，修改计划保留暂停状态，恢复保留下次触发时间。启停前取消放弃编辑会保留草稿且不发送请求，明确放弃后只更新启停；Task ID 不变且未产生 Run，无页面脚本异常。浏览器报告与脚本保留在本机私有目录。
+
 尚未覆盖 Safari、Firefox、浏览器后退缓存和自动填充行为。CLI 编辑器交互和隐藏终端凭据输入也未做终端验收，凭据测试使用 stdin。
 
 ## 真实模型验收入口
@@ -73,21 +75,22 @@ git diff --check
 需安全注入获准的 `DEEPSEEK_API_KEY`。隔离 Pi 验收使用已安装的 Pi，适配器在连接时准备：
 
 - 单节点：`npm run test:e2e:human -- --suite single`。
-- DAG 与问题回答：`npm run test:e2e:human -- --quantity 4`。数量由测试客户端提供，不冒充真人回答。
+- DAG 与问题回答：`npm run test:e2e:human -- --quantity 4`。数量由测试客户端提供，不冒充真人回答；按等待、依赖与交付验收，不固定节点轮数。
+- 同一 ACP 会话澄清续接：`npm run test:e2e:human -- --suite clarification`。执行端读取缺失数量的本地记录后提问，测试客户端补齐数量，检查后续 turn 保持会话身份。
 - 持续对话、记忆重开与补充执行：`npm run test:e2e:human -- --suite conversation`。用例仅在无活动协调或 ACP 工作时重启自己的隔离服务；SDK 观察器不写记忆、不恢复任务，也不提供模型响应。
 - 真人模式：`npm run test:e2e:human -- --answer-file /absolute/private/path/quantity.txt`。使用新文件，等待旁边的 `.question.json` 出现，再写入答案。
 
 其他已获准且原生认证与无领域副作用配置已准备的执行端可用 `npm run test:e2e`，将 `TASK_CONDUCTOR_E2E_EXECUTOR` 设为对应类型。此入口不代为隔离原生配置，不继承协调密钥；就绪不代表授权或成功。
 
-当前三组 E2E 使用中文要求、标识回传与字面字段传递，不再要求算术或开放式审计。调用方明确要求的简单 JSON 对象由测试直接比对；真实模型、ACP、依赖读取、等待续答、记忆重开和补充交付仍走原有流程。简化只降低领域推理噪声，不保证模型稳定调用工具，也不验证复杂领域判断。
+E2E 使用中文要求、标识回传与字面字段传递，不要求算术或开放式审计。调用方明确要求的简单 JSON 对象由测试直接比对；DAG 交付与同会话澄清分别验证，真实模型、ACP、依赖读取、等待续答、记忆重开和补充交付仍走原有流程。简化只降低领域推理噪声，不保证模型稳定调用工具，也不验证复杂领域判断。
 
 完整前置检查、参数和断言见 [E2E 用例](../tests/e2e/)、[Pi 启动器](../scripts/run-pi-human-e2e.mjs)。Pi 启动器为两端共用获准测试密钥，创建独立原生配置，只启用 read；这不是 OS 沙箱或独立账户隔离。强杀或断电不能保证临时认证清理，需管理员核查。
 
 ### 已验证结论
 
-`0.1.5` CLI 更新工作树，macOS、Node 24.22.2、Pi 1.5.0、pi-acp 0.0.34，协调者与隔离原生 Pi 均使用 DeepSeek `deepseek-flash`：单节点和持续对话首次通过；三节点问答首次失败，经用户要求原样重跑一次通过。单节点使用 3/6 次协调模型请求；问答 DAG 使用 10/18 次，等待数量时下游保持未执行，回复后同一 Run/ACP 会话完成两轮澄清、上游不重放且下游实际读取；持续对话的初始与补充 Run 分别使用 6/25、5/25 次，验证普通讨论与执行隔离、模型写入记忆并在空闲重启后读取、补充交付与下游复核、旧 Run 和旧文件保留。证据：单节点 `/private/tmp/task-conductor-real-e2e-nkjabG/`、问答 `/private/tmp/task-conductor-real-e2e-OZ86Ys/`、持续对话 `/private/tmp/task-conductor-real-e2e-B245MX/`。服务正常退出，临时凭据已清理；MCP 调用方为测试脚本，未覆盖宿主模型自主使用 skill 和工具创建任务。
+`0.1.8` 候选，macOS ARM64、Node 24.22.2、Pi 1.5.0、pi-acp 0.0.34，协调者与隔离原生 Pi 均使用 DeepSeek `deepseek-flash`：四组各执行一次均通过。单节点使用 3/6 次协调模型请求；三节点问答使用 10/18 次，回答前下游未启动，回答后各节点一轮交付，上游不重放；独立澄清使用 5/18 次，执行端读取缺失数量的记录，回答后在同一 ACP 会话完成第二个 turn，原文件不变；持续对话的初始与补充 Run 使用 8/25、6/25 次，覆盖等待期间讨论、模型写入记忆与空闲重启后读取、补充交付及旧 Run/文件保留，六个 SDK 输入均为 done、无工具错误。各组报告与原始记录保留在本机私有目录。服务正常退出，临时凭据已清理；MCP 调用方为测试脚本，未覆盖宿主模型自主使用 skill 和工具创建任务。
 
-保留首轮三节点失败边界：协调模型验收 source 后，先派发 record 并得到数量澄清，再向用户提问，违反用例“回答前不得启动下游”的要求。`human-dag.test.mjs:56` 观察到 `awaiting_review` 而非 `pending`，测试未提交数量回复。证据：`/private/tmp/task-conductor-real-e2e-h8JBbU/waiting-run.json`、同目录 `messages.json`，以及 `/private/tmp/task-conductor-pi-human-iSwz9U/test-1.log`。此用例直接启动业务运行进程，不经过包更新或 launcher；重跑未修改协调器或 E2E 用例，后续通过不证明模型顺序遵循稳定。
+旧 DAG 用例曾因数量已知时只交付一轮而违反固定两轮要求，原结果仍为测试失败。当前用例分别验证正常 DAG 交付与实际缺少信息时的同会话续接，未修改产品协调提示。另保留回答前提前派发下游的失败边界；原始记录保留在本机，通过样例不证明模型稳定遵循节点流程。
 
 保留参数误用的失败边界：同一环境在验收反馈调整前，持续对话初始 Run 使用 15/25 次模型请求后失败；模型在 unreviewedMessageIds=[] 时填入派发前已有消息，六次验收被拒，三个正确 ACP 输出仍未形成交付。回答早于首轮派发且之后没有新输入，失败发生在内容断言之前，不是测试时序或格式要求造成。证据：`/private/tmp/task-conductor-prompt-e2e-audit-fBw5k1/report.json`。当前[验收实现](../src/tasks/runs.ts)区分参数误填与事实变化，[工具契约](../src/integrations/coordinator/coordinator.ts)明确新增消息范围与空列表语义；[业务回归](../tests/task-conversations.test.mjs)验证修正参数即可验收原输出，同时继续拒绝遗漏消息、失效依据和上游变化。
 
@@ -135,14 +138,14 @@ Linux x64、Node 24.15.0 的隔离环境证据：
 
 发布与安装操作由[发布说明](release.md)维护。此处只保留有适用范围的证据，不逐版记录发布过程。
 
-`0.1.5` CLI 更新工作树，macOS ARM64、Node 24.22.2、npm 11.19.1：[更新测试](../tests/update.test.mjs)在隔离 prefix 中从本地候选 tarball 更新到 npmjs 的 `latest`，验证完整替换 launcher/服务、同版本重启、原已停服时启动、配置与终结历史保留、待迁移数据阻止启动，以及 prefix 不符、真实 npm 离线失败和端口占用时不误报成功。真实进程回归另验证 SIGTERM 中断时先回收 npm 再释放锁、异常停服阻止安装，以及包目录内私有 home/dataDir 在安装前被拒绝。联网验收需显式设置 `TASK_CONDUCTOR_UPDATE_REGISTRY=https://registry.npmjs.org`，默认测试跳过；不调用模型或执行 ACP 工作。启用联网和原生 Pi 后，基础测试 108 项通过，仅 PTY 用例因 `tcgetattr/ioctl: Operation not supported on socket` 跳过；三组模型 E2E 的独立结果见[真实模型结论](#已验证结论)。未验证 Linux、更新进程被 SIGKILL、安装磁盘写入期间中断及跨数据格式转换。候选 tarball 的独立安装、Web/CLI 重启与 MCP 后台检查通过，报告：`/private/tmp/task-conductor-npm-RzpriH/report.json`；本轮结论与证据入口：`/private/tmp/task-conductor-update-review-MT1k33/report.json`。
+`0.1.8` 候选，macOS ARM64、Node 24.22.2、npm 11.19.1：TypeScript、依赖边界与空白检查通过；启用原生 Pi 1.5.0、dsh 0.2.2-rc.1 和 npmjs 联网更新后，120 项测试中 119 项通过，仅 PTY 因环境能力不可用跳过。[更新测试](../tests/update.test.mjs)在隔离 prefix 中从候选 tarball 更新到公开 `latest`，验证完整替换 launcher/服务、同版本重启、配置与终结历史保留、待迁移数据阻止启动；真实进程回归还覆盖 SIGTERM 回收 npm、异常停服阻止安装及不安全 prefix/home/dataDir 拒绝。联网入口需设置 `TASK_CONDUCTOR_UPDATE_REGISTRY=https://registry.npmjs.org`，不调用模型或执行 ACP 工作。服务与插件打包门禁通过，候选服务的独立安装、Web/CLI 重启、认证与 MCP 后台检查通过，报告保留在本机私有目录。未验证更新进程被 SIGKILL、安装磁盘写入期间中断及跨数据格式转换。模型 E2E 结果见[真实模型结论](#已验证结论)。
 
 | 范围 | 结论 | 证据 |
 | --- | --- | --- |
 | `task-conductor@0.1.0`，Linux x64、Node 24.15.0 | TypeScript、依赖边界、包门禁、隔离 tarball 与 npmjs 默认安装通过；基础测试及原生 Pi 1.4.0 通知用例共 91 项全部通过；latest 指向该版本，本机发布，无 GitHub provenance | `/tmp/task-conductor-npm-oODcC0/report.json`、`/tmp/task-conductor-npm-YlKO9H/report.json`、`/tmp/task-conductor-final-tests.log` |
 | `0.0.1-rc.2`，提交 `48549ea`，历史平台证据 | Ubuntu x64 与 macOS ARM64 hosted runner 在 Node 22.19.0 下使用 CI tarball、无源码完成安装、前台、重启及认证检查 | [Validate 运行](https://github.com/realqiyan/task-conductor/actions/runs/39829900075) |
 
-当前发布验收未执行 macOS、浏览器或真实模型/ACP 任务；旧 macOS 证据不覆盖当前版本、Intel Mac、休眠或用户注销。安装检查使用真实失败程序提供可发现路径，不证明成功 ACP 执行。PTY 能力不可用时测试明确跳过，跳过不是通过。
+当前候选的安装验收在 macOS ARM64 执行，浏览器与模型/ACP 证据见各自章节；尚未复验此候选在 Linux、Intel Mac、休眠或用户注销时的行为。安装检查使用真实失败程序提供可发现路径，不证明成功 ACP 执行。PTY 能力不可用时测试明确跳过，跳过不是通过。
 
 上述发布状态是验收时的事实，不是实时 registry 查询；包内文档是发布提交的快照。
 

@@ -117,7 +117,11 @@ test("MCP notification files bind each creation after connect and reject unsafe 
   await peer.connect();
   assert.equal(existsSync(notificationFile), false, "the binding may be published after MCP connects");
   const ready = await controlService(home, "status");
-  assert.equal((await peer.client.listTools()).tools.length, 12);
+  const tools = (await peer.client.listTools()).tools;
+  assert.equal(tools.length, 12);
+  assert(tools.some(tool => tool.name === "task_update"));
+  assert(!tools.some(tool => tool.name === "task_schedule_control"));
+  await assert.rejects(peer.client.callTool({ name: "task_schedule_control", arguments: {} }), /Unknown Task Conductor tool/);
   assert.equal((await call(peer.client, "service_status")).coordinatorConfigured, true);
   assert.equal((await call(peer.client, "executor_list")).executors.find(item => item.id === "opencode").state, "ready");
   const foreign = Object.freeze({ projectId: "uuid:" + randomUUID(), sessionId: "pi:foreign" });
@@ -189,7 +193,10 @@ test("MCP notification files bind each creation after connect and reject unsafe 
   assertBindingError(await peer.client.callTool({ name: "task_create", arguments: { ...input, requestKey: "removed" } }));
   assertBindingError(await peer.client.callTool({ name: "task_create", arguments: input }));
   assert.deepEqual((await call(peer.client, "task_list")).items.map(item => item.taskId), [first.taskId, second.taskId, third.taskId]);
-  assert.equal((await call(peer.client, "task_schedule_control", { taskId: second.taskId, action: "pause" })).scheduleStatus, "paused");
+  const updated = await call(peer.client, "task_update", { taskId: second.taskId,
+    expected: { name: second.input.name, schedule: second.input.schedule, scheduleStatus: second.scheduleStatus, nextAt: second.nextAt },
+    name: "原任务更新", enabled: false });
+  assert.equal(updated.scheduleStatus, "paused"); assert.equal(updated.input.name, "原任务更新");
   assert.deepEqual((await call(peer.client, "task_run_list", { taskId: first.taskId })).items, []);
   assert.deepEqual((await call(peer.client, "task_get", { taskId: second.taskId })).notification, nextOrigin);
   await peer.client.close(); peer.child.stdin.end(); await waitClosed(peer);

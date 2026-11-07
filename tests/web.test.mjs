@@ -128,12 +128,12 @@ test("Web and CLI share task/configuration rules, preserve HTTP boundaries and a
   assert.equal((await raw("/api/tasks", { headers: { Origin: "https://untrusted.invalid" } })).status, 403);
   assert.equal((await raw("/api/tasks", { headers: { "Sec-Fetch-Site": "same-site" } })).status, 403);
   for (const origin of [undefined, "null", "https://untrusted.invalid"]) {
-    assert.equal((await raw("/api/task-schedule-control", { method: "POST", headers: {
+    assert.equal((await raw("/api/task-update", { method: "POST", headers: {
       "Content-Type": "application/json", ...(origin === undefined ? {} : { Origin: origin }),
-    }, body: JSON.stringify({ taskId: task.id, action: "cancel" }) })).status, 403);
+    }, body: JSON.stringify({ taskId: task.id, enabled: false }) })).status, 403);
   }
-  assert.equal((await raw("/api/task-schedule-control", { method: "POST", headers: { Origin: child.origin, "Content-Type": "application/x-www-form-urlencoded" }, body: "action=cancel" })).status, 415);
-  assert.equal((await raw("/api/task-schedule-control", { method: "OPTIONS", headers: { Origin: "https://untrusted.invalid" } })).status, 403);
+  assert.equal((await raw("/api/task-update", { method: "POST", headers: { Origin: child.origin, "Content-Type": "application/x-www-form-urlencoded" }, body: "enabled=false" })).status, 415);
+  assert.equal((await raw("/api/task-update", { method: "OPTIONS", headers: { Origin: "https://untrusted.invalid" } })).status, 403);
   assert.equal((await fetch(child.origin + "/mcp", { method: "POST", headers: { Authorization: "Bearer " + mcpToken, Origin: child.origin } })).status, 403);
   assert.equal((await fetch(child.origin + "/mcp", { method: "POST", headers: { Authorization: "Bearer " + adminToken } })).status, 401);
   assert.equal((await call("/tasks")).items[0].name, name);
@@ -142,14 +142,36 @@ test("Web and CLI share task/configuration rules, preserve HTTP boundaries and a
   assert.deepEqual(cliCall("run", "show", run.id), currentRun);
   assert.deepEqual(cliCall("task", "list", "--after", "0", "--limit", "1"), await call("/tasks?after=0&limit=1"));
   assert.deepEqual(cliCall("run", "list", "--task", task.id), await call("/runs?taskId=" + task.id));
-  assert.notEqual(invoke(["task", "schedule", "pause", task.id]).status, 0, "noninteractive changes require explicit confirmation");
-  for (const [action, status] of [["pause", "paused"], ["resume", "active"], ["cancel", "cancelled"]]) {
-    const updated = action === "pause" ? await call("/task-schedule-control", { taskId: task.id, action }) : cliCall("task", "schedule", action, task.id, "--yes");
-    assert.equal(updated.scheduleStatus, status);
-    assert.equal((await call("/tasks/" + task.id)).scheduleStatus, status);
-    assert.deepEqual(await call("/runs/" + run.id), currentRun);
+  const currentTask = await call("/tasks/" + task.id);
+  const expected = { name: currentTask.input.name, schedule: currentTask.input.schedule, scheduleStatus: currentTask.scheduleStatus,
+    nextAt: currentTask.nextAt === null ? null : new Date(currentTask.nextAt).toISOString() };
+  const revisedSchedule = { type: "once", at: new Date(Date.now() + 3_600_000).toISOString() };
+  const updated = await call("/task-update", { taskId: task.id, expected, schedule: revisedSchedule, enabled: false });
+  assert.equal(updated.nextAt, Date.parse(revisedSchedule.at)); assert.equal(updated.scheduleStatus, "paused");
+  assert.deepEqual(await call("/runs/" + run.id), currentRun);
+  const updateFile = join(root, "task-update.json");
+  const patch = { expected: { name: updated.input.name, schedule: updated.input.schedule, scheduleStatus: updated.scheduleStatus,
+    nextAt: new Date(updated.nextAt).toISOString() }, name: "保留运行历史的任务", enabled: true };
+  writeFileSync(updateFile, JSON.stringify(patch), { mode: 0o600 });
+  assert.notEqual(invoke(["task", "update", task.id, "--file", updateFile]).status, 0);
+  const renamed = cliCall("task", "update", task.id, "--file", updateFile, "--yes");
+  assert.equal(renamed.input.name, patch.name); assert.equal(renamed.scheduleStatus, "active");
+  assert.deepEqual(renamed, await call("/tasks/" + task.id));
+  assert.deepEqual(await call("/runs/" + run.id), currentRun);
+  assert.notEqual(invoke(["task", "update", task.id, "--file", updateFile, "--yes"]).status, 0, "stale updates must be rejected");
+  const staleUpdate = await raw("/api/task-update", { method: "POST", headers: { Origin: child.origin, "Content-Type": "application/json" },
+    body: JSON.stringify({ ...patch, taskId: task.id }) });
+  assert.equal(staleUpdate.status, 409);
+  const paused = await call("/task-update", { taskId: task.id, enabled: false,
+    expected: { name: renamed.input.name, schedule: renamed.input.schedule, scheduleStatus: renamed.scheduleStatus, nextAt: new Date(renamed.nextAt).toISOString() } });
+  assert.equal(paused.scheduleStatus, "paused"); assert.equal(paused.nextAt, renamed.nextAt);
+  for (const action of ["pause", "resume", "cancel"]) {
+    const rejected = invoke(["task", "schedule", action, task.id, "--yes"]);
+    assert.notEqual(rejected.status, 0); assert.match(rejected.stderr, /未知 task 操作/);
   }
-  for (const path of ["/api/tasks", "/api/task-create", "/api/task-run-reply", "/api/runs/" + run.id + "/cancel"]) {
+  assert.deepEqual(await call("/tasks/" + task.id), paused);
+  assert.deepEqual(await call("/runs/" + run.id), currentRun);
+  for (const path of ["/api/tasks", "/api/task-create", "/api/task-schedule-control", "/api/task-run-reply", "/api/runs/" + run.id + "/cancel"]) {
     assert.equal((await raw(path, { method: "POST", headers: { Origin: child.origin, "Content-Type": "application/json" }, body: "{}" })).status, 404);
   }
   let settings = await call("/settings");

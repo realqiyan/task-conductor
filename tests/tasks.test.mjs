@@ -44,6 +44,8 @@ function fixture(t, command = "/usr/bin/false", args = [], nodes = [node("A"), n
 
 }
 const node = (id, dependsOn = []) => ({ id, prompt: "Inspect data", executorId: "local", dependsOn, maxRunSeconds: 5 });
+const updateExpected = task => ({ name: task.input.name, schedule: task.input.schedule,
+  scheduleStatus: task.scheduleStatus, nextAt: task.nextAt === null ? null : new Date(task.nextAt).toISOString() });
 
 test("a turn ending with a question is not a DAG delivery; only accepted excerpts unlock dependencies", async t => {
   const f = fixture(t);
@@ -227,24 +229,99 @@ test("cancellation and timeout stop real waiting ACP processes without producing
   assert.equal(blocked.service.runs.get(blocked.run.id).status, "failed");
 });
 
-test("task_schedule_control affects future slots only, resumes without catch-up and rejects invalid actions without mutation", t => {
+test("已取消的历史计划重开后保持原状态，允许更名但不能重新触发", async t => {
+  const f = fixture(t), cancelled = f.store.get(f.task.id);
+  // 旧版持久记录；不通过已移除的操作创建新取消状态。
+  cancelled.scheduleStatus = "cancelled"; cancelled.nextAt = null;
+  f.store.saveDefinition(cancelled);
+  const run = f.service.runs.get(f.run.id), history = f.service.conversations.list(f.task.id);
+  await f.reopen();
+  assert.deepEqual(f.service.definitions.get(f.task.id), cancelled);
+  const renamed = f.service.definitions.update({ taskId: f.task.id, expected: updateExpected(cancelled), name: "历史任务" });
+  assert.equal(renamed.scheduleStatus, "cancelled"); assert.equal(renamed.nextAt, null);
+  for (const patch of [{ enabled: true }, { enabled: false }, { schedule: { type: "cron", expression: "* * * * *", timezone: "UTC" } }]) {
+    assert.throws(() => f.service.definitions.update({ taskId: f.task.id, expected: updateExpected(renamed), ...patch }), { code: "precondition" });
+    assert.deepEqual(f.service.definitions.get(f.task.id), renamed);
+  }
+  f.service.runs.trigger(Date.now() + 120_000);
+  assert.deepEqual(f.service.runs.list(f.task.id).items, [run]);
+  assert.deepEqual(f.service.conversations.list(f.task.id), history);
+});
+
+test("task_update 更名单次任务并改期，旧时点不触发，创建重提不覆盖更新，运行和会话历史保留", async t => {
+  const f = fixture(t), now = Date.now(), originalAt = now + 60_000, revisedAt = now + 120_000;
+  const input = { ...f.input, requestKey: "reschedule-once", schedule: { type: "once", at: new Date(originalAt).toISOString() } };
+  const task = f.service.definitions.create(input, now);
+  const conversationId = "task-update-conversation";
+  f.service.conversations.bind(task.id, conversationId);
+  const message = f.service.supervisor.send({ taskId: task.id, requestKey: "before-update", message: "保留任务讨论" }, now);
+  const history = f.service.conversations.list(task.id), existingRun = f.service.runs.get(f.run.id);
+  const updated = f.service.definitions.update({ taskId: task.id, expected: updateExpected(task), name: "改期后的名称",
+    schedule: { type: "once", at: new Date(revisedAt).toISOString() } }, now);
+  assert.equal(updated.id, task.id);
+  assert.equal(updated.nextAt, revisedAt);
+  assert.equal(updated.input.name, "改期后的名称");
+  assert.equal(updated.conversationId, conversationId);
+  assert.deepEqual(f.service.conversations.list(task.id), history);
+  assert.equal(history.items[0].id, message.id);
+  assert.deepEqual(f.service.definitions.create(input, now), updated);
+  assert.deepEqual(f.service.definitions.create({ ...input, schedule: { type: "once", at: new Date(now + 180_000).toISOString() } }, now), updated);
+  assert.throws(() => f.service.definitions.create({ ...input, prompt: "另一个目标" }), { code: "conflict" });
+  f.service.runs.trigger(originalAt);
+  assert.equal(f.service.runs.list(task.id).items.length, 0);
+  f.service.runs.trigger(revisedAt); f.service.runs.trigger(revisedAt);
+  const runs = f.service.runs.list(task.id).items;
+  assert.equal(runs.length, 1); assert.equal(runs[0].scheduledAt, revisedAt);
+  assert.deepEqual(f.service.runs.get(f.run.id), existingRun);
+  const completed = f.service.definitions.get(task.id);
+  assert.throws(() => f.service.definitions.update({ taskId: task.id, expected: updateExpected(completed), enabled: true }, revisedAt), { code: "precondition" });
+  assert.equal(f.service.definitions.update({ taskId: task.id, expected: updateExpected(completed), name: "保留历史的任务" }, revisedAt).scheduleStatus, "completed");
+});
+
+test("task_update 替换 Cron 并持久保留暂停状态，不改已有 Run，拒绝过时编辑和无效配置", async t => {
   const f = fixture(t), now = Math.floor(Date.now() / 60_000) * 60_000;
-  const task = f.service.definitions.create({ ...f.input, requestKey: "cron", schedule: { type: "cron", expression: "* * * * *", timezone: "UTC" } }, now - 1);
+  const input = { ...f.input, requestKey: "update-cron", schedule: { type: "cron", expression: "* * * * *", timezone: "UTC" },
+    expiresAt: new Date(now + 60 * 60_000).toISOString() };
+  const task = f.service.definitions.create(input, now - 1);
   f.service.runs.trigger(now);
-  const run = f.service.runs.list(task.id).items[0];
-  f.service.definitions.controlSchedule({ taskId: task.id, action: "pause" }, now);
-  f.service.runs.trigger(now + 120000);
+  const run = f.service.runs.list(task.id).items[0], messages = f.service.conversations.list(task.id);
+  assert.throws(() => f.service.definitions.update({ taskId: task.id, expected: updateExpected(task), enabled: false }, now), { code: "conflict" });
+  const current = f.service.definitions.get(task.id);
+  const updated = f.service.definitions.update({ taskId: task.id, expected: updateExpected(current), enabled: false,
+    schedule: { type: "cron", expression: "*/10 * * * *", timezone: "Asia/Shanghai" } }, now);
+  assert.equal(updated.scheduleStatus, "paused"); assert.equal(updated.nextAt % 600_000, 0);
+  assert.deepEqual(f.service.runs.get(run.id), run);
+  assert.deepEqual(f.service.conversations.list(task.id), messages);
+  const once = f.service.definitions.update({ taskId: task.id, expected: updateExpected(updated),
+    schedule: { type: "once", at: new Date(now + 25 * 60_000).toISOString() } }, now);
+  assert.equal(once.scheduleStatus, "paused");
+  const paused = f.service.definitions.update({ taskId: task.id, expected: updateExpected(once), schedule: updated.input.schedule }, now);
+  for (const patch of [
+    { schedule: { type: "once", at: new Date(now).toISOString() } },
+    { schedule: { type: "once", at: input.expiresAt } },
+    { schedule: { type: "cron", expression: "invalid", timezone: "UTC" } },
+    { schedule: { type: "now" } }, { prompt: "替换目标" }, { nodes: [node("replacement")] }, { maxModelCalls: 200 },
+    { workspace: f.dir }, { expiresAt: null }, { enabled: "false" }, { action: "cancel" }, {},
+  ]) {
+    assert.throws(() => f.service.definitions.update({ taskId: task.id, expected: updateExpected(paused), ...patch }, now));
+    assert.deepEqual(f.service.definitions.get(task.id), paused);
+  }
+  assert.throws(() => f.service.definitions.update({ taskId: task.id, expected: updateExpected(once), name: "旧编辑" }, now), { code: "conflict" });
+  await f.reopen();
+  assert.deepEqual(f.service.definitions.get(task.id), paused);
+  f.service.runs.trigger(now + 5 * 60_000);
   assert.equal(f.service.runs.list(task.id).items.length, 1);
-  const resumed = f.service.definitions.controlSchedule({ taskId: task.id, action: "resume" }, now + 150000);
-  assert.equal(resumed.nextAt, now + 180000);
-  assert.equal(f.service.runs.get(run.id).status, "running");
-  assert.throws(() => f.service.definitions.controlSchedule({ taskId: task.id, action: "edit" }), { name: "ZodError" });
-  assert.deepEqual(f.service.definitions.get(task.id), resumed);
-  assert.throws(() => f.service.definitions.controlSchedule({ taskId: task.id, action: "pause", prompt: "replace" }));
-  f.service.definitions.controlSchedule({ taskId: task.id, action: "cancel" });
-  assert.equal(f.service.definitions.get(task.id).nextAt, null);
-  assert.equal(f.service.runs.get(run.id).status, "running");
-  assert.throws(() => f.service.definitions.controlSchedule({ taskId: task.id, action: "resume" }), /no future/);
+  const resumed = f.service.definitions.update({ taskId: task.id, expected: updateExpected(paused), enabled: true }, now + 15 * 60_000);
+  assert.equal(resumed.scheduleStatus, "active");
+  assert(resumed.nextAt > now + 15 * 60_000);
+  const unchanged = f.service.definitions.update({ taskId: task.id, expected: updateExpected(resumed), schedule: resumed.input.schedule, enabled: true }, now + 17 * 60_000);
+  assert.equal(unchanged.nextAt, resumed.nextAt);
+  f.service.runs.trigger(resumed.nextAt);
+  const skipped = f.service.runs.list(task.id).items[1];
+  assert.equal(skipped.status, "skipped"); assert.equal(skipped.scheduledAt, resumed.nextAt);
+  const advanced = f.service.definitions.get(task.id);
+  assert.throws(() => f.service.definitions.update({ taskId: task.id, expected: updateExpected(resumed), enabled: false }, now), { code: "conflict" });
+  assert.throws(() => f.service.definitions.update({ taskId: task.id, expected: updateExpected(advanced), enabled: true }, Date.parse(input.expiresAt)), { code: "precondition" });
 });
 
 test("Cron admission persists calendar slots, counts misses without catch-up, skips overlaps and respects the cutoff", async t => {
@@ -402,7 +479,10 @@ test("cancelling an open external turn pauses future slots and late events canno
   await pending;
   assert.equal(f.service.runs.get(run.id).status, "cancelled");
   assert.equal(f.service.definitions.get(task.id).scheduleStatus, "paused");
-  assert.throws(() => f.service.definitions.controlSchedule({ taskId: task.id, action: "resume" }), /uncertain external outcomes/);
+  const paused = f.service.definitions.get(task.id);
+  assert.throws(() => f.service.definitions.update({ taskId: task.id, expected: updateExpected(paused), enabled: true,
+    schedule: { type: "cron", expression: "*/5 * * * *", timezone: "UTC" } }, now), /uncertain external outcomes/);
+  assert.deepEqual(f.service.definitions.get(task.id), paused);
   f.service.runs.trigger(now + 60_000);
   assert.equal(f.service.runs.list(task.id).items.length, 1);
   // A previously persisted active cursor must not bypass the same dispatch guard on restart.

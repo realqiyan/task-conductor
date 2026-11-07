@@ -9,13 +9,13 @@ const args = process.argv.slice(2);
 const options = {};
 for (let i = 0; i < args.length; i += 2) {
   if (!["--repeat", "--quantity", "--answer-file", "--suite"].includes(args[i]) || !args[i + 1]) {
-    throw new Error("用法：npm run test:e2e:human -- [--suite human|single|conversation] [--repeat 1..5] [--quantity 1..9 | --answer-file 新文件路径]");
+    throw new Error("用法：npm run test:e2e:human -- [--suite human|single|conversation|clarification] [--repeat 1..5] [--quantity 1..9 | --answer-file 新文件路径]");
   }
   options[args[i]] = args[i + 1];
 }
 const repeat = Number(options["--repeat"] ?? 1), quantity = Number(options["--quantity"] ?? 3);
 const suite = options["--suite"] ?? "human";
-const suites = { human: "human-dag", single: "deepseek-acp", conversation: "task-conversation" };
+const suites = { human: "human-dag", single: "deepseek-acp", conversation: "task-conversation", clarification: "acp-clarification" };
 if (!Object.hasOwn(suites, suite)) throw new Error("Unknown E2E suite");
 if (suite !== "human" && (options["--answer-file"] || options["--quantity"])) throw new Error("Quantity/answer-file only apply to the human suite");
 if (!Number.isInteger(repeat) || repeat < 1 || repeat > 5 || !Number.isInteger(quantity) || quantity < 1 || quantity > 9) throw new Error("Invalid repeat/quantity");

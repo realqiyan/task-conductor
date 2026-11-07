@@ -17,8 +17,8 @@
 npm ci --ignore-scripts
 npm pack --pack-destination /absolute/artifacts
 node scripts/pack-plugin.mjs /absolute/artifacts
-npm install -g /absolute/artifacts/task-conductor-0.1.7.tgz
-dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plugin-0.1.7.tgz
+npm install -g /absolute/artifacts/task-conductor-0.1.8.tgz
+dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plugin-0.1.8.tgz
 ```
 
 `npm pack` 会构建服务。将 `existing-profile` 换成已有目标 profile，不重建或重置它；只安装插件 tarball 不需要构建服务。已有服务替换先按下一节停服备份。面向 registry 的 `task-conductor update` 不会获取未发布源码。

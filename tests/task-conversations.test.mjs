@@ -429,7 +429,7 @@ test("idle dialogue does not reopen a Run; explicit supplementary Runs reuse onl
   review(f, f.run.id, "A", "A"); review(f, f.run.id, "B", "B");
   f.service.runs.finish(f.run.id, "Complete");
   const baseline = f.service.runs.get(f.run.id);
-  f.service.definitions.controlSchedule({ taskId: f.task.id, action: "cancel" });
+  assert.equal(f.service.definitions.get(f.task.id).scheduleStatus, "completed");
   const chat = f.service.supervisor.send({ taskId: f.task.id, requestKey: "discussion", message: "Explain the result." });
   assert.equal(chat.execute, false); assert.equal(chat.runId, null);
   assert.equal(f.service.runs.list(f.task.id).items.length, 1);

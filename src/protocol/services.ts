@@ -8,7 +8,7 @@ import type { ExecutorRegistry } from "../executors/registry.js";
 /** Public capabilities used by protocol adapters; no storage or process access. */
 export type TaskApi = {
   notifications: Pick<TaskNotifications, "poll" | "acknowledge" | "release">;
-  definitions: Pick<TaskDefinitions, "create" | "get" | "list" | "controlSchedule" | "executorImpact">;
+  definitions: Pick<TaskDefinitions, "create" | "get" | "list" | "update" | "executorImpact">;
   runs: Pick<TaskRuns, "get" | "list" | "active">;
   conversations: Pick<TaskConversations, "list">;
   supervisor: Pick<TaskSupervisor, "status" | "answer" | "send" | "cancel">;

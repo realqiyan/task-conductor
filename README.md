@@ -90,6 +90,7 @@ Detailed operational and design documents are currently in **Chinese**. The Engl
 | Task conversations, memory, and additional work | [Conversation design](docs/task-conversation-plan.md) |
 | Terminology | [Glossary](CONTEXT.md) |
 | Implementation and test navigation | [Technical design](docs/technical-design.md) |
+| Prompts, tool descriptions, skills, and context loading | [Model instruction guidelines](docs/model-instruction-guidelines.md) |
 | Evidence and unverified boundaries | [Validation](docs/validation.md) |
 | Package validation and controlled npm releases | [Release guide](docs/release.md) |
 | Contributing | [Development guide](AGENTS.md), [architecture guidelines](docs/architecture-guidelines.md) |

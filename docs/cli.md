@@ -83,4 +83,12 @@ task-conductor executor unregister my-acp --yes
 
 `credential set NAME` 使用隐藏终端输入；自动化通过 `--stdin --yes` 从可信凭据工具或受保护文件传值，不把值写进命令参数。`credential list` 只显示设置状态。执行端原生登录和权限继续由其官方工具管理。
 
-`task show ID` 查看固定 DAG，`run show ID` 查看节点、原始回合、已接受交付及问题回复。`task schedule pause/resume/cancel` 仅控制未来触发，不停止当前运行；恢复不补跑，取消后不可恢复未来触发；有不确定外部结果时也拒绝恢复。操作边界与 Web 一致，见[控制台说明](web-console.md#操作范围)。
+`task show ID` 查看任务配置，`run show ID` 查看执行记录，`task update ID` 修改基础配置及未来触发。更新范围见[控制台说明](web-console.md#操作范围)，字段契约见 [taskUpdateSchema](../src/protocol/task-contract.ts)。
+
+更新文件包含 `expected` 和要修改的字段。`expected` 按上述契约从 `task show ID --json` 的结果填写，其中 `nextAt` 的毫秒数需转为 UTC ISO 时间，null 保持原值；文件不包含 `taskId`。然后执行：
+
+```bash
+task-conductor task update ID --file /absolute/private/task-update.json --yes
+```
+
+更新冲突或结果不明时，用 `task show ID` 查看当前配置。

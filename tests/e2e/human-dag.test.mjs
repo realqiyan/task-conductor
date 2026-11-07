@@ -34,13 +34,13 @@ test("real three-node DAG waits for human quantity and resumes without replay", 
       { id: "source", executorId: e2e.executor.id, dependsOn: [], maxRunSeconds: 180,
         prompt: `只返回 JSON 对象 {"marker":"${marker}","label":"blue"}，不加 Markdown 围栏或说明。不需要工具或外部副作用。` },
       { id: "record", executorId: e2e.executor.id, dependsOn: ["source"], maxRunSeconds: 180,
-        prompt: "使用 read 读取已验收上游文件。第一轮只读取记录并向协调者请求确认数量，即使上下文已经提供数量也要确认，暂不交付完整记录。在同一会话的后续轮次，原样复制上游 marker 和 label，并将明确提供的数量作为数值 quantity 加入。只返回包含 marker、label、quantity 的 JSON 对象，不加围栏或说明。不计算或编造字段；仅可读取提供的上游文件，不写入、不运行 shell 或网络工具、不产生外部副作用。" },
+        prompt: "使用 read 读取已验收上游文件，原样复制 marker 和 label，将用户明确提供的数量作为数值 quantity 加入。只返回包含 marker、label、quantity 的 JSON 对象，不加围栏或说明。缺少数量时请求澄清，不猜测。只读提供的上游文件，不写入、不使用 shell 或网络工具。" },
       { id: "copy", executorId: e2e.executor.id, dependsOn: ["record"], maxRunSeconds: 180,
         prompt: "使用 read 读取已验收上游文件。只返回其中的 JSON 对象，保持 marker、label、quantity 不变，不加围栏或说明。不计算或索取更多用户事实；只读提供的上游文件，不写入、不使用 shell 或网络工具、不产生外部副作用。" },
     ],
     prompt: `推进给定的三节点数据传递 DAG，原样传递字段，不做算术、购买或外部交易。
 先执行 source，核对 marker 和 label 后验收。在开始 record 或 copy 前，询问用户一个 1 到 9 的整数 quantity，completedWork 说明已验收的 source。不能猜测、使用默认数量或在用户回答前启动下游。等待不能依赖保留已经验收的 source 会话。
-收到回答后保留原计划和 source 原交付；明确重验证 source，不再次执行。给 record 选择包含回答 messageId 的上下文。第一轮请求确认数量的回复不是交付：在同一 record 会话的第二轮确认数量，不再次询问用户。核对 marker、label、quantity 后验收记录，再执行 copy，核对并验收原样副本，最后判断整体完成。只读提供的上游文件，不写入、不使用 shell 或网络工具、不产生外部副作用。交付必须是无围栏、无说明的 JSON 对象，不要求算术或开放式审计。` });
+收到回答后保留原计划和 source 原交付；明确重验证 source，不再次执行。给 record 选择包含回答 messageId 的上下文。核对 marker、label、quantity 后验收记录，再执行 copy，核对并验收原样副本，最后判断整体完成。只读提供的上游文件，不写入、不使用 shell 或网络工具。交付为无围栏、无说明的 JSON 对象。` });
   const waiting = await e2e.waitFor("waiting_input");
   await e2e.save("waiting-run.json", waiting);
   assert.deepEqual(waiting.nodes.map(node => node.definition), task.input.nodes);
@@ -108,10 +108,7 @@ test("real three-node DAG waits for human quantity and resumes without replay", 
     await verifyDelivery(after[name]);
   }
   assert.equal(new Set(run.nodes.map(node => node.sessionId)).size, 3);
-  assert.equal(after.record.turns.length, 2, "Record must clarify within the same ACP session");
-  assert.deepEqual(after.record.turns.map(turn => turn.sessionId), [after.record.sessionId, after.record.sessionId], "两轮澄清必须使用同一个 ACP 会话");
-  assert.ok(after.record.turns[0].output.trim(), "The clarification turn must have an actual response");
-  assert.ok(!after.record.turns[0].output.includes(after.record.result), "The quantity request must not be accepted as the completed delivery");
+  assert.ok(after.record.turns.some(turn => turn.contextMessageIds.includes(receipt.messageId)), "Record must receive the explicit quantity answer");
   for (const node of [after.record, after.copy]) verifyRecord(node.result, marker, quantity);
   assert.deepEqual(after.record.inputFiles, [after.source.resultFile]);
   assert.deepEqual(after.copy.inputFiles, [after.record.resultFile]);

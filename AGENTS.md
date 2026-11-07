@@ -5,6 +5,7 @@ Task Conductor 是独立开发的 TypeScript 服务。MCP 提供任务管理，A
 ## 先阅读
 
 - `docs/architecture-guidelines.md`：设计与依赖要求。
+- `docs/model-instruction-guidelines.md`：修改模型可见内容或其加载方式时的编写要求。
 - `docs/design-proposal.md`：产品需求、总体设计、取舍与暂缓能力。
 - `docs/technical-design.md`：代码和测试导航、依赖边界及资源所有权。
 - `docs/validation.md`：验证入口、证据与验收限制。

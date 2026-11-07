@@ -7,7 +7,7 @@ import { version } from "../infrastructure/version.js";
 import type { NotificationOrigin } from "../tasks/model.js";
 import { serverInstructions } from "./mcp-contract.js";
 
-const toolNames = new Set(["service_status", "executor_list", "task_create", "task_list", "task_get", "task_schedule_control",
+const toolNames = new Set(["service_status", "executor_list", "task_create", "task_list", "task_get", "task_update",
   "task_run_list", "task_run_get", "task_question_answer", "task_message_send", "task_message_list", "task_run_cancel"]);
 
 /** A fixed Task Conductor adapter; task creation receives the startup directory and optional host notification binding. */

@@ -1,4 +1,4 @@
-import { element, group, heading, panel, empty, badge, stack, table, facts, block, disclosure, time } from "./dom.js";
+import { element, group, heading, panel, empty, badge, stack, table, facts, block, disclosure, field, select, time } from "./dom.js";
 
 const statuses = {
   active: ["已启用", "good"], paused: ["已暂停", "warn"], completed: ["触发结束", "neutral"], expired: ["已到期", "neutral"],
@@ -36,7 +36,48 @@ export async function renderTasks(root, state, context) {
   paging(list, page, state, context.link); root.append(list,
     element("p", "计划状态仅表示未来触发，执行结果请查看运行历史。空闲时每 10 秒更新。", "page-note"));
 }
-async function renderTask(root, state, { request, link, button, confirm, notify, navigate }) {
+function taskEditor(task, state, { request, submit, notify, navigate }) {
+  const form = element("form"), name = field("任务名称", task.input.name);
+  name.input.required = true; name.input.maxLength = 200;
+  form.append(name.row);
+  const editable = task.nextAt !== null && ["active", "paused"].includes(task.scheduleStatus);
+  let readSchedule;
+  if (editable) {
+    const current = task.input.schedule;
+    const type = select("触发方式", [...(current.type === "now" ? [["now", "保留立即执行"]] : []), ["once", "单次定时"], ["cron", "Cron 周期"]], current.type);
+    const at = field("触发时间", current.type === "once" ? current.at : "", "text", "ISO 8601 时间，须带时区，例如 2026-12-01T09:00:00+08:00。"),
+      expression = field("Cron 表达式", current.type === "cron" ? current.expression : ""),
+      timezone = field("时区", current.type === "cron" ? current.timezone : "UTC");
+    at.input.placeholder = "2026-12-01T09:00:00+08:00"; expression.input.placeholder = "0 9 * * 1-5";
+    function update() {
+      for (const item of [at, expression, timezone]) {
+        const visible = item === at ? type.input.value === "once" : type.input.value === "cron";
+        item.row.hidden = !visible; item.input.disabled = !visible; item.input.required = visible;
+      }
+    }
+    type.input.addEventListener("change", update); update();
+    form.append(group("form-grid", type.row, at.row, expression.row, timezone.row));
+    readSchedule = () => type.input.value === "now" ? { type: "now" } : type.input.value === "once"
+      ? { type: "once", at: at.input.value.trim() }
+      : { type: "cron", expression: expression.input.value.trim(), timezone: timezone.input.value.trim() };
+  }
+  const expected = { name: task.input.name, schedule: task.input.schedule, scheduleStatus: task.scheduleStatus,
+    nextAt: task.nextAt === null ? null : new Date(task.nextAt).toISOString() };
+  form.append(element("p", "新计划只影响未来触发；暂停状态保持不变。", "hint"));
+  form.append(group("actions", submit(form, "保存任务配置", async () => {
+    const patch = { taskId: task.id, expected };
+    if (name.input.value.trim() !== task.input.name) patch.name = name.input.value.trim();
+    const schedule = readSchedule?.();
+    if (schedule && JSON.stringify(schedule) !== JSON.stringify(task.input.schedule)) patch.schedule = schedule;
+    if (patch.name === undefined && patch.schedule === undefined) { notify("配置没有变化。"); return; }
+    await request("/task-update", patch);
+    form.dataset.dirty = "false";
+    notify("任务配置已保存。", "success"); await navigate(state, true);
+  })));
+  return disclosure("编辑基础配置", "task-editor", form);
+}
+async function renderTask(root, state, context) {
+  const { request, link, button, confirm, notify, navigate, canLeave } = context;
   const [task, page] = await Promise.all([
     request("/tasks/" + encodeURIComponent(state.id)),
     request("/runs?taskId=" + encodeURIComponent(state.id) + "&after=" + state.after),
@@ -47,15 +88,17 @@ async function renderTask(root, state, { request, link, button, confirm, notify,
   const plan = panel("触发计划");
   plan.append(facts([["执行方式", schedule(task.input.schedule)], ["下次触发", nextTrigger(task)], ["工作目录", task.workspace]]));
   if (task.nextAt !== null && ["active", "paused"].includes(task.scheduleStatus)) {
-    const control = (action, label) => button(label, async () => {
-      const message = action === "cancel" ? "取消后无法恢复未来触发。当前运行会继续，历史记录将保留。" :
-        action === "resume" ? "恢复后按计划触发，不补跑已错过的时间。" : "暂停后不再开始新的计划运行，当前运行会继续。";
-      if (!await confirm({ title: label + "？", message, confirmText: label, danger: action === "cancel" })) return;
-      await request("/task-schedule-control", { taskId: task.id, action });
+    const enabled = task.scheduleStatus === "paused", label = enabled ? "恢复触发" : "暂停触发";
+    plan.append(group("actions", button(label, async () => {
+      const message = enabled ? "恢复后按计划触发，不补跑已错过的时间。" : "暂停后不再开始新的计划运行，当前运行会继续。";
+      if (!await confirm({ title: label + "？", message, confirmText: label }) || !await canLeave()) return;
+      await request("/task-update", { taskId: task.id,
+        expected: { name: task.input.name, schedule: task.input.schedule, scheduleStatus: task.scheduleStatus, nextAt: new Date(task.nextAt).toISOString() },
+        enabled });
       notify("触发计划已更新。", "success"); await navigate(state, true);
-    }, false, action === "cancel" ? "danger-text" : "");
-    plan.append(group("actions", task.scheduleStatus === "active" ? control("pause", "暂停触发") : control("resume", "恢复触发"), control("cancel", "取消未来触发")));
+    })));
   }
+  plan.append(taskEditor(task, state, context));
   root.append(group("detail-grid", overview, plan));
   const nodes = panel("节点计划", "执行端与依赖在任务创建时固定。只有已验收交付才能解锁下游节点。");
   nodes.append(table(["节点", "执行端", "前置节点"], task.input.nodes.map(node => [node.id, node.executorId, node.dependsOn.join("、") || "无"])),
