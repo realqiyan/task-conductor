@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, existsSync, realpathSync, writeFileSync, readFileSync, statSync, rmSync } from "node:fs";
+import { cpSync, symlinkSync, mkdtempSync, mkdirSync, existsSync, realpathSync, writeFileSync, readFileSync, statSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
@@ -16,8 +16,8 @@ const executorTypes = ["pi", "codex", "claude", "opencode"];
 import { createCoordinator } from "../dist/integrations/coordinator/coordinator.js";
 import { taskSchema } from "../dist/protocol/task-contract.js";
 
-async function start(t, home) {
-  const child = spawn(process.execPath, ["--input-type=module", "-e", 'import {launch} from "./dist/application/launcher.js"; await launch(process.argv[1], process.env);', home],
+async function start(t, home, launcher = resolve("dist/application/launcher.js")) {
+  const child = spawn(process.execPath, ["--input-type=module", "-e", 'const {launch} = await import(process.argv[2]); await launch(process.argv[1], process.env);', home, launcher],
     { env: { PATH: process.env.PATH }, stdio: ["ignore", "pipe", "pipe"] });
   let stdout = "", stderr = "";
   child.stdout.on("data", value => { stdout += value; }); child.stderr.on("data", value => { stderr += value; });
@@ -68,7 +68,14 @@ test("Web and CLI share task/configuration rules, preserve HTTP boundaries and a
     }
     rmSync(root, { recursive: true, force: true });
   });
-  let child = await start(t, root); children.push(child);
+  // npm installations under .nvm must serve the console and all of its modules.
+  const installation = join(root, ".nvm", "task-conductor");
+  mkdirSync(installation, { recursive: true });
+  cpSync(resolve("dist"), join(installation, "dist"), { recursive: true });
+  cpSync(resolve("package.json"), join(installation, "package.json"));
+  symlinkSync(resolve("node_modules"), join(installation, "node_modules"), "dir");
+  const launcher = join(installation, "dist/application/launcher.js");
+  let child = await start(t, root, launcher); children.push(child);
   const raw = (path, options = {}) => fetch(child.origin + "/admin" + path, {
     ...options, headers: { Authorization: "Bearer " + adminToken, ...options.headers },
   });
@@ -99,6 +106,13 @@ test("Web and CLI share task/configuration rules, preserve HTTP boundaries and a
   const script = await fetch(child.origin + "/admin/app.js");
   assert.equal(script.status, 200);
   assert.match(script.headers.get("content-type"), /javascript/);
+  for (const asset of ["api.js", "dom.js", "tasks-view.js", "executors-view.js", "settings-view.js",
+    "settings-fields.js", "credentials-view.js", "style.css"]) {
+    assert.equal((await fetch(child.origin + "/admin/" + asset)).status, 200, asset);
+  }
+  for (const path of ["/admin/.env", "/admin/package.json", "/admin/%2e%2e/package.json"]) {
+    assert.equal((await fetch(child.origin + path)).status, 404, path);
+  }
   const html = await shell.text();
   for (const secret of secrets) assert(!html.includes(secret));
   assert(!html.includes(name), "business data must not be embedded in the public shell");
@@ -252,6 +266,6 @@ test("Web and CLI share task/configuration rules, preserve HTTP boundaries and a
   writeFileSync(configPath, JSON.stringify({ ...changed, dataDir }));
   delete environment.TASK_CONDUCTOR_ADMIN_TOKEN;
   writeFileSync(environmentPath, JSON.stringify(environment));
-  child = await start(t, root); children.push(child);
+  child = await start(t, root, launcher); children.push(child);
   assert.equal((await raw("/api/tasks")).status, 404);
 });

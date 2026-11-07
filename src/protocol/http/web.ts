@@ -45,11 +45,12 @@ export function createWebRouter(tasks: ConsoleTasks, settings: Settings, token: 
     if (req.method === "POST" && !req.is("application/json")) { res.status(415).end(); return; }
     next();
   });
+  const assetsRoot = fileURLToPath(new URL("../../web/", import.meta.url));
   const assets = new Map(["index.html", "app.js", "api.js", "dom.js", "tasks-view.js", "executors-view.js",
     "settings-view.js", "settings-fields.js", "credentials-view.js", "style.css"]
-    .map(name => [name === "index.html" ? "/" : "/" + name, fileURLToPath(new URL("../../web/" + name, import.meta.url))]));
+    .map(name => [name === "index.html" ? "/" : "/" + name, name]));
   router.get(["/", ...[...assets.keys()].filter(path => path !== "/")], (req, res) => {
-    res.sendFile(assets.get(req.path)!, { lastModified: false, cacheControl: false, acceptRanges: false },
+    res.sendFile(assets.get(req.path)!, { root: assetsRoot, lastModified: false, cacheControl: false, acceptRanges: false },
       error => { if (error && !res.headersSent) res.status(404).end(); });
   });
   router.use("/api", express.json({ limit: "512kb" }));
