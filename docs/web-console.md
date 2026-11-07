@@ -6,7 +6,15 @@
 
 ## 启用与连接
 
-新安装由 `task-conductor setup`（[实现](../scripts/setup.mjs)）在当前 `dataDir/environment.json` 中生成独立的 `TASK_CONDUCTOR_ADMIN_TOKEN`。用本地编辑器读取该字段并在连接表单输入；它不是 MCP token，不能放进 URL、命令参数、截图或日志。
+`task-conductor setup` 在当前 `dataDir/environment.json` 中生成 `TASK_CONDUCTOR_ADMIN_TOKEN`。读取后粘贴到连接表单：
+
+```bash
+task-conductor console token
+# macOS 复制：
+task-conductor console token | pbcopy
+```
+
+自定义安装使用 `--home 绝对目录`；参数见 `task-conductor console --help`。
 
 已有文件不会由 setup 补写或覆盖。缺少管理员令牌时，管理接口关闭。需要启用时先停服，用本地密码管理器生成独立随机令牌，离线加入该字段；令牌约束见 [environment.ts](../src/configuration/environment.ts)。不要复用服务或模型密钥。
 

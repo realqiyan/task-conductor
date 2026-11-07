@@ -10,6 +10,7 @@ const help = `用法：task-conductor <命令>
   stop [--home 目录]        停止共享后台
   restart [--home 目录]     重启服务运行进程并检查就绪状态
   status [--home 目录]      查看健康状态、活动工作、版本及待生效配置
+  console token            显示 Web 控制台管理员令牌
   config                   查看、编辑、校验和保存配置
   executor                 发现执行端、升级适配器及管理启用状态
   coordinator              配置协调模型

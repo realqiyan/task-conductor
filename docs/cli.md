@@ -8,6 +8,7 @@ CLI 覆盖 Web 的配置、凭据、执行端管理、任务查询、未来触�
 
 ```bash
 task-conductor --help
+task-conductor console --help
 task-conductor config --help
 task-conductor executor --help
 task-conductor coordinator --help
@@ -18,7 +19,7 @@ task-conductor run --help
 
 逐级帮助是命令与参数的完整入口。管理命令支持 `--json`，结果写入 stdout，预览和诊断写入 stderr；失败退出码非零。非交互保存、适配器升级与任务变更须使用 `--yes`，它只确认本次操作，不授予执行端原生工具权限。
 
-服务不可用时，管理命令失败，不自动离线写文件。首次安装仍使用 `setup`；启动故障按[部署说明](deployment.md#后台前台与健康检查)停服核查。
+`console token` 无需启动服务，用法见[控制台说明](web-console.md#启用与连接)。其他管理命令需要服务运行；初始化和排障见[部署说明](deployment.md)。
 
 服务包更新入口为 `task-conductor update [--home 绝对目录] [--json]`，只更新当前 npm 全局 prefix 对应的同一份安装，无额外确认或 `--yes`。`restart` 仍只重启服务子进程以应用配置；数据迁移仍使用独立离线入口 `migrate`。支持范围、备份与重连、旧版入口及失败处理统一见[升级说明](upgrades.md)。
 

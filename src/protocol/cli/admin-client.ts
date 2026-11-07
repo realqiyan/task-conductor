@@ -3,6 +3,12 @@ import { startupPaths } from "../../configuration/files.js";
 import { readEnvironment } from "../../configuration/files.js";
 import { ADMIN_TOKEN_ENV } from "../../configuration/policy.js";
 
+export function readAdminToken(home: string): string {
+  const token = readEnvironment(startupPaths(home).environmentPath)[ADMIN_TOKEN_ENV];
+  if (!token) throw new Error("未配置 TASK_CONDUCTOR_ADMIN_TOKEN");
+  return token;
+}
+
 /** Local CLI transport. Credentials never enter arguments, URLs or diagnostics. */
 export async function connectAdmin(home: string) {
   const ready = await controlService(home, "status");
@@ -11,8 +17,7 @@ export async function connectAdmin(home: string) {
   if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || url.username || url.password) {
     throw new Error("Invalid local administrator address");
   }
-  const token = readEnvironment(startupPaths(home).environmentPath)[ADMIN_TOKEN_ENV];
-  if (!token) throw new Error("Administrator credential is unavailable");
+  const token = readAdminToken(home);
   return {
     ready,
     async request<T>(path: string, input?: unknown): Promise<T> {

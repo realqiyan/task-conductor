@@ -4,15 +4,18 @@ import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { Writable } from "node:stream";
-import { connectAdmin } from "./admin-client.js";
+import { connectAdmin, readAdminToken } from "./admin-client.js";
 import { controlService, ControlError } from "../../integrations/local-service/control.js";
 import { version, versionStatus } from "../../infrastructure/version.js";
 import type { Settings } from "../../configuration/settings.js";
 import type { previewSettings } from "../../configuration/management.js";
 import type { ExecutorStatus } from "../../executors/model.js";
 
-const common = "通用参数：--home 绝对目录、--json、--help。非交互写操作须用 --yes 确认。";
+const common = "通用参数：--home 绝对目录、--json、--help。";
 const help: Record<string, string> = {
+  console: `console token
+显示 Web 控制台管理员令牌；--json 输出 {token}。
+macOS 复制：task-conductor console token | pbcopy`,
   config: `config show [--saved | --running]
 config diff
 config edit [--editor 程序路径] [--yes]
@@ -144,6 +147,9 @@ export async function runCli(command: string, args: string[], resolveHome: (home
   let allowed: string[] = [], count = 1;
   switch (command) {
     case "status": case "restart": count = 0; break;
+    case "console":
+      if (action !== "token") throw new Error("未知控制台操作");
+      break;
     case "config":
       if (action === "show") allowed = ["saved", "running"];
       else if (action === "diff") allowed = [];
@@ -182,6 +188,12 @@ export async function runCli(command: string, args: string[], resolveHome: (home
   if (options.saved && options.running) throw new Error("--saved 与 --running 只能选择一个");
   const home = resolveHome(text(options, "home"));
   const output = (value: unknown) => console.log(JSON.stringify(value, null, options.json ? undefined : 2));
+  if (command === "console") {
+    const token = readAdminToken(home);
+    if (options.json) output({ token });
+    else process.stdout.write(token + "\n");
+    return;
+  }
   if (command === "restart") { output({ event: "restarted", ...await controlService(home, "restart") }); return; }
   if (command === "status") {
     try {
