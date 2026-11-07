@@ -32,7 +32,7 @@ git diff --check
 
 同一环境中，Pi RPC 发出缺少命令的通知并保留模型上下文，未触发模型运行（`pi-preflight.jsonl`）；Claude headless 原生 SessionStart 执行并返回用户提示和上下文（`claude-hook.jsonl`，MCP 被显式关闭以验证独立性）。Codex 发现同步 hook 且无清单错误，但标记为未信任；未绕过审查执行。
 
-[接入测试](../tests/host-integrations.test.mjs)从真实 tarball、空 npm 缓存离线安装独立接入包，并通过真实 setup、stdio 与官方 MCP SDK 调用上述只读工具。[启动检查测试](../tests/host-preflight.test.mjs)检查配置缺失/损坏、失败进程、输出限制与取消、无目录/锁写入及私密值不回显；hook 故障输出不阻塞会话，正常状态不输出通知。[插件包门禁](../scripts/pack-plugin.mjs)检查实际包包含 hook、扩展、清单和 skill，并验证两个 npm marketplace 的版本；[服务包门禁](../scripts/pack-release.mjs)拒绝混入插件资产。原生宿主不是基础测试依赖。
+[接入测试](../tests/host-integrations.test.mjs)从真实 tarball、空 npm 缓存离线安装独立接入包，并通过真实 setup、stdio 与官方 MCP SDK 调用上述只读工具。[启动检查测试](../tests/host-preflight.test.mjs)检查配置缺失/损坏、失败进程、输出限制与取消、无目录/锁写入及私密值不回显；hook 故障输出不阻塞会话，正常状态不输出通知。[插件包门禁](../scripts/pack-plugin.mjs)检查实际包包含 hook、扩展、清单和 skill，并验证两个 npm marketplace 的版本；[服务包门禁](../scripts/pack-release.mjs)拒绝混入插件资产。dsh 原生 SDK 是锁定的开发依赖，Node.js 24.9+ 会执行其测试；Node.js 22 的服务验证明确跳过 dsh。Pi 原生验收仍需显式提供 SDK 路径。
 
 `task-conductor-plugin@0.1.0` 已发布，npmjs latest 指向该版本；本机发布，无 GitHub provenance。Linux x64、Node 24.15.0 下，公开 registry 安装与宿主清单检查通过，证据：`/tmp/task-conductor-plugin-install-GkbIjx/report.json`。当前源码的离线打包安装与 stdio 工具调用通过；三种宿主的原生安装及真实模型任务尚未复验。
 
@@ -47,6 +47,16 @@ git diff --check
 [原生 Pi 用例](../tests/pi-notifications.test.mjs)验证 followUp 排队尚无磁盘回执、空闲唤醒后自定义消息保存、恢复去重和不同会话标识隔离；实际 tool_call 扩展事件与 MCP 调用验证创建前注入身份。端到端用例通过真实 setup、后台、CLI 轮询和 Pi 扩展收到协调认证缺失产生的失败事件，并检查消息落盘后服务才保存渠道确认。
 
 这些用例不使用个人凭据或成功模型响应；Pi 模型请求仅连接本机无响应 TCP 服务。未验证模型最终汇报质量、真实 TUI 展示、macOS、远程/多用户部署、极端租约竞争、完整原生 fork/会话切换 UI 流程。基础测试未配置原生 SDK 路径时明确跳过原生用例；运行方式及设计边界见[通知说明](notifications.md)。
+
+## dsh 主会话与 ACP 接入
+
+`0.1.6` 未发布候选，macOS ARM64、Node.js 24.22.2、npm 11.19.1、dsh 0.2.2-rc.1：[原生 dsh 用例](../tests/dsh/integration.mjs)在隔离 HOME 与本机服务中验证真实 tarball 经 Cordis 加载、无服务时的首轮技能发现、多根会话的原生 MCP 工具、固定 cwd、通知身份覆盖、子会话拒绝借用、原会话恢复、带点号的原生 ID 和 fork 新归属。后台换端口后原生 MCP 自动重连、启动中取消回收连接也通过真实进程测试。原生持久化用例验证排队不确认、恢复已 flush 的待投递日志后重新唤醒、失败准入不循环唤醒、原生 `user/message` 落盘后确认与恢复去重；没有持久化屏障时拒绝回执。测试中的会话收件记录不是模型输出，未验证模型最终汇报。
+
+[stdio 用例](../tests/stdio.test.mjs)验证绑定文件在连接后发布、每次创建重新读取、缺失/损坏/不安全路径在 HTTP 转发前拒绝、覆盖外来 notification、默认及显式 workspace、连接关闭不停止服务。既有存储格式不变。当前本地完整检查通过；启用 Pi 1.5.0 原生回归后 116 项中 114 项通过，PTY 环境限制和未启用 npm 联网更新验收两项明确跳过。
+
+同一原生 dsh 用例还通过 Task Conductor 的真实 `openAcp` 建立 `dsh --profile acp` 会话并关闭。单独协议探针验证 ACP v1、session/new、close、进程重启后的 list/resume；session/load 返回不支持。证据：`/tmp/task-conductor-dsh-review-EMhZZx/acp-evidence.json`、`/private/tmp/task-conductor-dsh-native-9NHKlg/conductor-evidence.json`。现有执行引擎保持活动 ACP 进程，不使用 load/resume 恢复中断工作。
+
+未安装到真实用户 profile，未发布 npm；未验证 Linux 上的新 dsh 接入、桌面/Web 呈现、真实模型任务、ACP 工具授权、长时间通知、磁盘故障和极端租约竞争。协议连接成功不证明 dsh 节点完成任务。安装和运行方法见[宿主接入](host-integrations.md)与[通知说明](notifications.md)。
 
 ## 控制台验证
 
@@ -119,7 +129,7 @@ Linux x64、Node 24.15.0 的隔离环境证据：
 
 下载成功与 initialize 不证明原生认证、工具授权或任务成功。
 
-自定义本机 stdio ACP 的源码测试入口：[执行端测试](../tests/executors.test.mjs)、[Web/CLI](../tests/web.test.mjs)、[MCP](../tests/service.test.mjs)。它们校验私有注册持久化、即时准入、重启保留、启动快照不被替换、仅自定义执行端时的 MCP 接入及管理员/MCP 权限分离；[任务测试](../tests/tasks.test.mjs)另以真实失败进程验证可选启动 `cwd` 及任务 workspace 保持不变。真实本地程序只证明参数直传、启动目录与失败路径，不证明自定义 ACP 兼容或任务交付。自定义执行端尚未进行真实 ACP/模型验收。
+自定义本机 stdio ACP 的源码测试入口：[执行端测试](../tests/executors.test.mjs)、[Web/CLI](../tests/web.test.mjs)、[MCP](../tests/service.test.mjs)。它们校验私有注册持久化、即时准入、重启保留、启动快照不被替换、仅自定义执行端时的 MCP 接入及管理员/MCP 权限分离；[任务测试](../tests/tasks.test.mjs)另以真实失败进程验证可选启动 `cwd` 及任务 workspace 保持不变。真实本地程序只证明参数直传、启动目录与失败路径，不证明自定义 ACP 兼容或任务交付。自定义 dsh 的真实 ACP 建立与关闭已按上节验证；其他自定义 ACP 及模型任务仍未验收。
 
 ## npm 发布候选验证
 

@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | 任务定义、执行端快照、未来触发控制 | [TaskDefinitions](../src/tasks/definitions.ts)、[图校验](../src/tasks/graph.ts)、[时间规则](../src/tasks/schedule.ts)、[Cron 解析](../src/tasks/cron.ts) | [tasks.test.mjs](../tests/tasks.test.mjs)、[schedule.test.mjs](../tests/schedule.test.mjs) |
 | Run 与节点状态的业务修改入口、派发与提交顺序 | [TaskRuns](../src/tasks/runs.ts)、[数据模型](../src/tasks/model.ts)、[窄能力契约](../src/tasks/ports.ts) | [tasks.test.mjs](../tests/tasks.test.mjs)、[task-storage.test.mjs](../tests/task-storage.test.mjs) |
-| Run 通知事件、会话领取与确认 | [通知服务](../src/tasks/notifications.ts)、[通知契约](../src/protocol/notification-contract.ts)、[Pi 接收](../plugin/scripts/notifications.mjs) | [通知测试](../tests/notifications.test.mjs)、[原生 Pi](../tests/pi-notifications.test.mjs) |
+| Run 通知事件、会话领取与确认 | [通知服务](../src/tasks/notifications.ts)、[通知契约](../src/protocol/notification-contract.ts)、[共用桥接](../plugin/scripts/notification-common.mjs)、[Pi 接收](../plugin/scripts/notifications.mjs)、[dsh 接收](../plugin/scripts/dsh-notifications.mjs) | [通知测试](../tests/notifications.test.mjs)、[Pi SDK](../tests/pi-notifications.test.mjs)、[dsh SDK](../tests/dsh-integration.test.mjs) |
 | 可靠输入、Task 会话绑定、公开消息与回执 | [TaskConversations](../src/tasks/conversations.ts) | [task-conversations.test.mjs](../tests/task-conversations.test.mjs) |
 | 时钟、Task 单所有者监督、取消与收尾 | [TaskSupervisor](../src/tasks/supervisor.ts)、[NodeSessions](../src/tasks/sessions.ts) | [tasks.test.mjs](../tests/tasks.test.mjs)、[restart.test.mjs](../tests/restart.test.mjs) |
 | 人工事实等待与回复 | [纯状态规则](../src/tasks/human-input.ts)、[TaskRuns](../src/tasks/runs.ts) | [human-input.test.mjs](../tests/human-input.test.mjs) |
@@ -27,7 +27,13 @@
 | 离线数据升级 | [迁移入口](../scripts/migrate.mjs)、[格式校验](../src/tasks/storage/store.ts)、[SDK 存储校验](../src/integrations/coordinator/storage.ts) | [migration.test.mjs](../tests/migration.test.mjs)、[升级说明](upgrades.md) |
 | 安装、更新与发布 | [命令入口](../bin/task-conductor.mjs)、[setup](../scripts/setup.mjs)、[包更新](../scripts/update.mjs)、[安装库](../scripts/install-lib.mjs)、[包门禁](../scripts/pack-release.mjs)、[发布准入](../scripts/check-release.mjs)、[工作流](../.github/workflows/) | [install.test.mjs](../tests/install.test.mjs)、[setup.test.mjs](../tests/setup.test.mjs)、[update.test.mjs](../tests/update.test.mjs)、[release.test.mjs](../tests/release.test.mjs)、[升级说明](upgrades.md)、[发布说明](release.md) |
 
-宿主安装资产位于 [plugin](../plugin/)，包含原生插件清单、MCP 连接声明、`using-task-conductor` 使用引导、只读启动检查和 [Pi 会话通知](notifications.md)，不进入服务运行时依赖图。检查通过 CLI 摘要复用 setup 校验；[检查测试](../tests/host-preflight.test.mjs)验证无写入、故障分类和凭据不回显。[独立包门禁](../scripts/pack-plugin.mjs)不构建或安装服务；[接入测试](../tests/host-integrations.test.mjs)验证无服务依赖的离线安装、清单契约和真实 stdio 工具调用；宿主原生流程见[接入说明](host-integrations.md)。
+宿主安装资产位于 [plugin](../plugin/)，包含 Pi、dsh、Claude Code/Codex 原生入口、`using-task-conductor`、只读启动检查及 [Pi/dsh 会话通知](notifications.md)，不进入服务运行时依赖图。dsh SDK 是宿主提供的 optional peers，插件无运行时依赖或安装 hook；[仓库开发依赖](../package.json)锁定 dsh `0.2.2-rc.1`，运行其测试需要 Node.js 24.9+，服务和非 dsh 路径仍支持 22.19+。`0.1.6` 候选版本包含这些新增资产，尚未发布，安装来源见[接入说明](host-integrations.md)。
+
+[Pi 扩展](../plugin/pi-extension.js)与[dsh 插件](../plugin/dsh.js)都复用 CLI 检查摘要和共享 skill。dsh 的 skill provider 在检查之前注册，首轮原生 skill 目录可发现引导；异常通过原生 notice 提供上下文。每个非子代理根会话通过检查后，在自己的 Agent 作用域加载原生 MCP，固定 stdio cwd 为 session header 的 cwd；工具守卫拒绝子代理借用。`/task-conductor status` 查询状态，`connect` 重建该会话的连接；没有第二套模型循环或浏览器端连接所有者。
+
+冻结的 dsh 工具参数不在 hook 中修改。创建前保存并 flush 原生可忽略绑定记录，发布私有临时文件；[CLI](../bin/task-conductor.mjs)和[MCP 入口](../src/application/mcp-entry.ts)将 `--notification-file` 交给 [stdio](../src/protocol/stdio.ts)，由 stdio 严格读取、覆盖归属后转发 HTTP。上游 HTTP 传输失败会关闭 stdio，让宿主原生 MCP 重连时重新解析服务地址；不会重发失败的工具调用。会话恢复、fork 继承前缀及持久化回执的规则统一见[通知设计](notifications.md#可靠性与所有权)。
+
+[检查测试](../tests/host-preflight.test.mjs)覆盖只读摘要和故障分类；[独立包门禁](../scripts/pack-plugin.mjs)不构建或安装服务。[接入测试](../tests/host-integrations.test.mjs)、[dsh SDK 用例](../tests/dsh-integration.test.mjs)和[stdio 用例](../tests/stdio.test.mjs)是安装、会话作用域与真实工具调用的验证入口；实际结果由[验证说明](validation.md)维护。
 
 ## 依赖与一致性边界
 
@@ -62,6 +68,7 @@ Task 输入与相关 Run 决策在业务库中提交；SDK inbox 和 Document �
 | 节点会话句柄、超时与等待期间的会话 | `NodeSessions` 持有；关闭调用共用同一个完成结果 |
 | 适配器安装进程与安装锁 | `ExecutorRegistry` 管理安装准入与取消，`LocalExecutors` 持有进程和锁；发布后保留旧组件，关闭时等待安装退出 |
 | stdio 接入与共享后台 | `mcp-entry` 连接或启动独立 launcher；stdio 关闭只释放本连接，后台由显式 stop 或服务管理器关闭 |
+| dsh 根会话 MCP、通知轮询、租约和临时绑定文件 | Host 的 Agent 作用域持有；重连先释放旧连接，关闭取消请求、尝试释放租约并删除临时文件，原生会话保留归属与消息回执；浏览器不持有这些资源 |
 | worker 与 ACP 进程组 | ACP 接入创建与回收；监督器只持有窄会话能力 |
 | durable storage 与 Harness | 按 Task 寻址，每次唤醒打开同一会话；正常决定等待 SDK 回执，系统停止先 abort 收尾再 close。打开失败关闭存储，成功后由 Harness 关闭其存储 |
 | HTTP listener 与 MCP transport/server | `HttpServer` 持有；请求断开只释放请求资源，应用关闭停止新请求并收尾 |
@@ -74,5 +81,7 @@ Task 输入与相关 Run 决策在业务库中提交；SDK inbox 和 Document �
 - [probe-agent.mjs](../scripts/probe-agent.mjs)：只做 ACP initialize。
 - [单节点用例](../tests/e2e/deepseek-acp.test.mjs)、[问题回答 DAG 用例](../tests/e2e/human-dag.test.mjs)、[持续对话、记忆与补充用例](../tests/e2e/task-conversation.test.mjs)：真实模型验收。
 - [E2E harness](../tests/e2e/harness.mjs)、[Pi 启动器](../scripts/run-pi-human-e2e.mjs)：环境准备、服务生命周期和证据保存。
+
+dsh 作为 ACP 执行端使用管理员注册的 `dsh-acp` ID，命令为规范绝对路径的 `dsh --profile acp`；不增加自动发现项或保留 `dsh` ID。它沿用 dsh 自身模型、工具、ACP profile 和后台继承的原生环境；Task Conductor 内部的 pi durable 协调者保持独立，不要求交互式 Pi CLI。操作见[自定义 ACP](../plugin/skills/using-task-conductor/references/custom-acp.md#dsh-acp-执行端)。
 
 配置示例见 [config.example.json](../config.example.json)，命令和依赖版本见 [package.json](../package.json)。操作前置条件与已验证范围见[部署说明](deployment.md)、[验证说明](validation.md)。

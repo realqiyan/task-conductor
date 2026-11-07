@@ -55,7 +55,7 @@ Task Conductor 是独立开发的 TypeScript 服务。MCP 提供任务管理，A
 
 项目维护的描述、工具和字段说明、提示词及使用引导使用中文；工具名、协议字段、状态标识、代码标识符和第三方原文保留必要的英文。
 
-开发环境为 macOS/Linux、Node.js 22.19+。用本机 SQLite 锁替代外部 flock。
+开发环境为 macOS/Linux。完整宿主开发及 dsh 集成测试使用 Node.js 24.9+，服务和非 dsh 消费端保留 Node.js 22.19+。dsh SDK 由宿主提供并声明为 optional peers，开发依赖锁定实际验收版本。用本机 SQLite 锁替代外部 flock。
 
 - `npm ci --ignore-scripts`：按锁文件安装依赖。
 - `npm run check`：TypeScript 与依赖边界检查。

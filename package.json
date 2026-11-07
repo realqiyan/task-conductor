@@ -1,6 +1,6 @@
 {
   "name": "task-conductor",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "license": "MIT",
   "author": "realqiyan",
   "repository": {
@@ -71,6 +71,7 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh": "0.2.2-rc.1",
     "@types/express": "5.0.6",
     "@types/node": "24.19.2",
     "typescript": "5.9.3"

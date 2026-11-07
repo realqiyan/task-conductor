@@ -1,6 +1,6 @@
 {
   "name": "task-conductor",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "安装、配置并通过现有 MCP 工具使用 Task Conductor",
   "author": {
     "name": "realqiyan"

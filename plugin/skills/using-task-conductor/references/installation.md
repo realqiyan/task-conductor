@@ -2,45 +2,84 @@
 
 ## 检查与安装
 
-1. 确认宿主、操作系统、安装位置和配置范围。要求 Linux/macOS、Node.js 22.19+ 和 npm；检查 `node --version`、`npm --version`、`command -v task-conductor`，已找到时查询 `task-conductor --version`。不把插件目录当 workspace。
-2. 先检查已有安装、自定义 --home 和 MCP 连接。命令不在 PATH 时查询用户已知安装与 `npm prefix -g`；PATH 问题不需要第二份安装。
-3. 确认缺失后，说明安装会把 npm 包下载到当前用户的全局 prefix，取得安装 `task-conductor` 的确认。用户指定版本时先核实版本，不虚构版本或假定插件同版服务已发布。
-4. 获准后用宿主 shell 工具**执行** `npm install -g task-conductor`，遵循原生权限检查。不自动 sudo、更改 prefix 或放宽安全策略。权限/网络不足时报告失败，提供相同命令供用户终端执行，不扩大权限重试。
-5. 检查退出码及安装版本；必要时使用确认 prefix 下 bin/ 的绝对路径。未经明确批准不升级已有安装。
+按用户请求和已有约定推进安装、配置及重连；仅在缺少目标位置、配置范围或必要参数时询问。
+
+1. 检查宿主、OS、Node/npm、已有命令和配置。服务及非 dsh 接入要求 Linux/macOS、Node.js 22.19+；dsh 要求 24.9+。使用 `node --version`、`npm --version`、`command -v task-conductor`，已找到时查询 `task-conductor --version`。
+2. 核对已有自定义 `--home` 和 MCP 连接。命令不在 PATH 时检查已知安装与 `npm prefix -g`，优先使用已有绝对路径，不另装一份修复 PATH。
+3. 服务缺失时，用宿主 shell 执行用户选定来源的安装。已发布版本使用 `npm install -g task-conductor`；新增 dsh 接入使用下一节的本地构建。检查退出码和版本，不因插件版本相同推断 registry 已有对应服务改动。
+4. 沿用宿主原生权限。权限或网络不足时报告失败，给出同一命令供用户终端执行，不自动 sudo、更改 prefix 或放宽策略。
+
+## 未发布 dsh 接入
+
+当前 `0.1.6` 候选版本包含新增 dsh 接入，尚未发布，发布前插件与服务均须来自同一源码或配套本地 tarball。收到已构建的包时安装其绝对路径；从源码准备时，在仓库根目录使用 Node.js 24.9+，dsh 原生插件命令需要 PATH 中的 pnpm，输出目录须已存在：
+
+```bash
+npm ci --ignore-scripts
+npm pack --pack-destination /absolute/artifacts
+node scripts/pack-plugin.mjs /absolute/artifacts
+npm install -g /absolute/artifacts/task-conductor-0.1.6.tgz
+dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plugin-0.1.6.tgz
+```
+
+`npm pack` 会构建服务。将 `existing-profile` 换成已有目标 profile，不重建或重置它；只安装插件 tarball 不需要构建服务。已有服务替换先按下一节停服备份。面向 registry 的 `task-conductor update` 不会获取未发布源码。
+
+也可执行 `npm run build` 后直接用源码中的 `bin/task-conductor.mjs`，将其绝对路径放入 `TASK_CONDUCTOR_PREFLIGHT_COMMAND`。该变量接受可执行文件路径，不是 `node ...` 命令字符串；`TASK_CONDUCTOR_PREFLIGHT_HOME` 使用同一个 setup home。修改环境或重装插件后重开目标 profile。
+
+服务与插件分别安装。内部 pi durable 协调不要求交互式 Pi CLI；dsh 如需作为执行端，按[自定义 ACP](custom-acp.md#dsh-acp-执行端)注册。
 
 ## 升级已有服务
 
-升级操作统一按[服务与数据升级](https://github.com/realqiyan/task-conductor/blob/master/docs/upgrades.md)执行。沿用用户已给出的升级授权，核对同一命令路径、当前 npm 全局 prefix 和 `--home`；先查 `task-conductor --help` 是否支持 `update`，不要另装一份来修复 PATH。
+已发布服务的升级按[服务与数据升级](https://github.com/realqiyan/task-conductor/blob/master/docs/upgrades.md)执行。沿用用户的升级约定，核对命令路径、npm 全局 prefix 和 `--home`；先查 `task-conductor --help` 是否支持 `update`。
 
-支持时使用 `task-conductor update`，自定义安装附加原有 `--home`，无需额外确认或 `--yes`。执行前仍须核查活动及待回答 Run、停服备份 home 和 dataDir，并保持宿主断开；同版本也完整重启，后台原已停止时更新后仍会启动。命令只更新服务包，不更新插件或执行端。
+支持时使用 `task-conductor update`，自定义安装附加原有 `--home`，无需额外确认或 `--yes`。执行前核查活动及待回答 Run、停服备份 home 和 dataDir，并保持宿主断开；同版本也完整重启，后台原已停止时更新后仍会启动。命令只更新服务，不更新插件或执行端。
 
-已发布 `0.1.4` 等尚无 `update` 的旧版，首次升级到含此命令的版本仍走 `stop` → 同一 prefix 的 npm 安装 → 数据检查 → 重连，详见[旧版升级入口](https://github.com/realqiyan/task-conductor/blob/master/docs/upgrades.md#旧版升级入口)。不能让旧版调用不存在的命令。
+已发布 `0.1.4` 等尚无 `update` 的旧版，或替换为上述未发布 tarball，走 `stop` → 同一 prefix 的 npm 安装 → 数据检查 → 重连。旧版细节见[升级入口](https://github.com/realqiyan/task-conductor/blob/master/docs/upgrades.md#旧版升级入口)。
 
-更新后按[注册或重连](#注册或重连)刷新宿主 stdio 进程，保留原有注册；再按升级说明核对运行版本和只读 MCP 调用。仅安装成功不能报告升级完成；失败时报告阶段并停止，不自动迁移、回滚、提权或重放工作。
+更新后按[注册或重连](#注册或重连)刷新宿主 stdio 进程，保留原注册；核对运行版本和只读 MCP 调用。失败时保留原数据并报告失败阶段，不自动迁移、回滚或重放工作。
 
 ## 使用现有 CLI 初始化
 
-请用户在自己的终端运行 `task-conductor setup`，自定义安装使用 `task-conductor setup --home /absolute/private/task-conductor`。由用户确认目录、端口、独立服务/管理员令牌及协调 provider/model。不在聊天索要秘密、不打印凭据文件、不复用宿主模型登录作为协调凭据。
+在用户终端运行 `task-conductor setup`；自定义安装使用 `task-conductor setup --home /absolute/private/task-conductor`。向导收集目录、端口、独立服务/管理员令牌及协调 provider/model。凭据不进入聊天或命令参数，不读取私有环境文件到模型上下文，也不把宿主模型登录当作协调凭据。
 
-用户要求非交互 setup 时，先读 `task-conductor setup --help`，只使用已确认选项和用户准备的私有凭据文件，确认后可代执行。不猜模型配置，不未经同意生成令牌，不在参数放秘密。未配置协调者时可以管理，但不能接收可执行任务。
+非交互 setup 先读 `task-conductor setup --help`，使用用户选定参数和准备好的私有凭据文件。保留已有配置，中断初始化通过 CLI 的 `--resume` 显式续接，不删除历史。未配置协调者时可以管理，但不能接收可执行任务。
 
-保留已有配置；中断初始化须明确批准 --resume，不删除历史或猜测修复。后台至少能发现原生 pi、codex、claude、opencode 中的一种，或已有[自定义就绪 ACP 执行端](custom-acp.md)。各执行端使用自己的原生登录和授权。连接前说明 MCP 初始化可能下载缺失的 ACP 适配器；就绪不证明认证和完整工具权限。
+后台须发现原生 pi、codex、claude、opencode 中的一种，或已有[自定义就绪 ACP 执行端](custom-acp.md)，例如 `dsh-acp`。各执行端使用自身原生认证和工具配置；MCP 初始化会为内置执行端准备缺失的 ACP 适配器。
 
-## 启动检查与信任
+## 启动检查与目标
 
-插件通过有时长和输出限制的 `task-conductor setup --check --json` 只读检查；配置有效后，用 `task-conductor status --json` 查询已有后台的运行版本。不自动启动、重启或修复。失败或不支持时只能报告不确定；已初始化但停止的后台不是未安装。启动检查不是持续监控，当前会话中升级仍须按上述流程完成重连验证。
+插件用限时、限输出的 `task-conductor setup --check --json` 检查初始化，再用 `task-conductor status --json` 查询已有后台的版本。检查本身不启动、重启或修复。已初始化但停止的后台不是未安装；当前会话内升级仍须重连验证。
 
-根据提示行动前核对命令和 home。配置自定义 MCP 时，经确认在宿主启动环境设置 `TASK_CONDUCTOR_PREFLIGHT_COMMAND` 与 `TASK_CONDUCTOR_PREFLIGHT_HOME`。它们选择启动检查及 Pi 通知桥接的程序和 home，必须与 MCP 指向同一安装；变量本身不修改 MCP 或服务配置。不写入服务凭据，也不假设插件识别了手工宿主配置。
+自定义命令/home 在宿主启动环境设置：
 
-Codex 需要用户在 /hooks 审查并信任 hook，不绕过信任。hook/扩展禁用或 Node 无法启动时使用显式技能入口；没有提示不证明就绪。用户可以禁用检查而保留技能。
+```bash
+export TASK_CONDUCTOR_PREFLIGHT_COMMAND=/absolute/bin/task-conductor
+export TASK_CONDUCTOR_PREFLIGHT_HOME=/absolute/private/task-conductor
+```
+
+- dsh：两者共同选择启动检查、原生 MCP 和通知桥接。`TASK_CONDUCTOR_MCP_SERVER` 设置原生 MCP 名称及工具命名空间，默认 `task-conductor`；不再添加独立手工连接。
+- Pi：两者用于检查和通知桥接，MCP 仍须单独配置为相同程序/home；`TASK_CONDUCTOR_MCP_SERVER` 匹配已有服务名。
+- Claude/Codex：两者只选检查目标，MCP 另按下文配置。
+
+修改启动环境后重开宿主。Codex hook 需要用户在 `/hooks` 审查并信任，沿用原生机制。缺少提示不证明已连接，skill 可独立加载。
 
 ## 注册或重连
 
-使用 setup 对应的 OS 用户、原生环境与 home。stdio 私下读取服务凭据，不把令牌或端口复制到宿主配置。修改前检查已有条目、保留其他设置，仅保留一条 Task Conductor 连接。
+使用 setup 对应的 OS 用户、原生环境与 home。stdio 自行读取服务凭据，不把令牌或端口复制到宿主配置。保留无关设置和已有连接，只保留一条有效 Task Conductor 接入。
+
+### dsh 原生接入
+
+从目标项目目录启动已安装插件的 profile。每个非子代理根会话执行检查，通过后创建该 Agent 的 MCP，固定 cwd 为原生 session header 的 cwd；子代理不能借用父连接。MCP 可能启动共享后台；缺少协调模型时仍可连接查询。服务未准备时也能调用 `/using-task-conductor` 或通过 `skill` 工具加载引导。
+
+```text
+/task-conductor status
+/task-conductor connect
+```
+
+用 `status` 核对状态与工作目录，setup、执行端注册或故障修正后用 `connect` 重新检查并连接。无需手工编辑 MCP 配置或插件缓存。通知由 dsh Host 会话持有，浏览器不持有连接或确认职责。
 
 ### Pi 1.4.0+ 原生 MCP
 
-确认目标项目目录后，在该目录执行：
+在目标项目目录执行：
 
 ```bash
 pi mcp add --local task-conductor -- task-conductor mcp
@@ -53,27 +92,25 @@ pi mcp list
 pi mcp add --local task-conductor -- /absolute/bin/task-conductor mcp --home /absolute/private/task-conductor
 ```
 
-默认用 `--local` 将 MCP 条目写入本项目的 `.pi/mcp.json`；仅在用户明确选择用户范围时省略 `--local`。add 会替换同名条目。使用 /reload 或新会话重载。若其他扩展替代了原生 MCP，应先询问保留哪种接入，不再安装第二座桥接。
+默认 `--local` 写入 `.pi/mcp.json`；用户选择用户范围时省略。add 会替换同名项，因此先核对已有配置。使用 `/reload` 或新会话重载。若其他扩展替代了原生 MCP，沿用用户选择的接入，不重复注册。
 
-### Pi 通知设置
+### Pi 与 dsh 通知设置
 
-通知适用于 Pi TUI/RPC 持久会话；print、JSON 和内存会话不自动通知。扩展填写任务的 notification 归属，首次提交保存项目身份文件。事件回到原会话，忙碌时排队跟进。
+Pi 通知适用于 TUI/RPC 持久会话，print、JSON 和内存会话不启用。dsh 通知属于原生根会话。首次创建任务保存项目身份文件，归属由接入层填写；模型省略 `notification`。默认 Git 项目使用仓库根目录，无 Git 使用会话 cwd；`TASK_CONDUCTOR_PROJECT_ROOT` 可指定绝对配置目录。
 
-自定义程序或 home 使用上文的 `TASK_CONDUCTOR_PREFLIGHT_COMMAND` 和 `TASK_CONDUCTOR_PREFLIGHT_HOME`，与 MCP 指向同一安装；MCP 服务改名时设置 `TASK_CONDUCTOR_MCP_SERVER`。可用 `TASK_CONDUCTOR_NOTIFICATIONS=off` 关闭通知。这些变量不修改 MCP 配置。
+事件回到原会话，忙碌时排队；恢复原会话可补读，fork 不接管。dsh 模型准入失败或取消后，待用户输入、模型选择或 `/task-conductor connect` 再尝试唤醒；未确认事件保留。只支持本机服务，程序/home 对应关系见上文。`TASK_CONDUCTOR_NOTIFICATIONS=off` 当前仅 Pi 支持，dsh 不使用该开关。
 
 ### Claude Code 与 Codex 插件
 
-启用的插件已声明 `task-conductor mcp`，默认安装不要再手工添加。setup 后开启新会话；Claude Code 也可在 /mcp 重连。核查新会话的 /mcp 状态。
+插件已声明 `task-conductor mcp`，默认安装不要再手工添加。setup 后新开会话；Claude Code 也可在 `/mcp` 重连。自定义 home 或程序路径时保留技能，先禁用随包 MCP 再手工注册，不修改更新管理的插件缓存。
 
-自定义 home 或程序路径时保留技能，先禁用随包 MCP 再手工注册；不修改更新管理的插件缓存。
-
-Claude Code：请用户在 /mcp 禁用插件的 Task Conductor 服务，确认后执行：
+Claude Code 在 `/mcp` 禁用插件的 Task Conductor 服务后执行：
 
 ```bash
 claude mcp add --transport stdio --scope user task-conductor -- /absolute/bin/task-conductor mcp --home /absolute/private/task-conductor
 ```
 
-Codex：确认后只合并以下表，保留其他配置，再注册连接：
+Codex 合并以下表，保留其他配置，再注册连接：
 
 ```toml
 [plugins."task-conductor@task-conductor".mcp_servers.task-conductor]
@@ -84,12 +121,10 @@ enabled = false
 codex mcp add task-conductor -- /absolute/bin/task-conductor mcp --home /absolute/private/task-conductor
 ```
 
-重启会话并核对只有目标连接启用。GUI 宿主也须能找到 Node 和原生执行 CLI。
+重开会话，核对目标连接。GUI 宿主也须能找到 Node 和原生执行 CLI。
 
-## 不执行领域工作的验证
+## 连接核查
 
-1. 确认宿主实际连接并列出工具；静态配置列表不证明连接。
-2. 通过实际 MCP 命名空间发现并调用 `executor_list({})`、`task_list({})`。Pi 默认使用原生工具搜索/codemode。
-3. 分别报告连接、只读调用与执行端就绪；适配器准备中则稍后查询，不为验证安装提交任务或调用收费模型。
+确认实际连接并列出工具，再通过实际命名空间调用 `executor_list({})`、`task_list({})`。Pi 默认使用原生工具搜索/codemode；dsh 使用原生 MCP 工具。不为安装检查提交任务或调用收费模型；执行端 ready 只说明启动准备完成。
 
-后续 CLI 使用相同 --home。`task-conductor mcp` 启动或复用共享后台，宿主退出不停止它。停止或重启活动工作前须确认。
+后续 CLI 使用相同 `--home`。宿主退出不停止共享后台，`stop`/`restart` 会影响活动工作，操作前核查相关 Run。

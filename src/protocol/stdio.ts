@@ -4,13 +4,14 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import { version } from "../infrastructure/version.js";
+import type { NotificationOrigin } from "../tasks/model.js";
 import { serverInstructions } from "./mcp-contract.js";
 
 const toolNames = new Set(["service_status", "executor_list", "task_create", "task_list", "task_get", "task_schedule_control",
   "task_run_list", "task_run_get", "task_question_answer", "task_message_send", "task_message_list", "task_run_cancel"]);
 
-/** A fixed Task Conductor adapter; only task creation receives the connection's startup directory. */
-export async function serveStdio(options: { url: string; token: string; workspace: string }): Promise<void> {
+/** A fixed Task Conductor adapter; task creation receives the startup directory and optional host notification binding. */
+export async function serveStdio(options: { url: string; token: string; workspace: string; readNotification?: () => NotificationOrigin }): Promise<void> {
   const url = new URL(options.url);
   if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || url.pathname !== "/mcp" || url.username || url.password || url.search || url.hash) {
     throw new Error("Invalid local MCP address");
@@ -25,6 +26,7 @@ export async function serveStdio(options: { url: string; token: string; workspac
   const stop = () => { void shutdown().catch(() => {}); };
   server.onclose = stop;
   client.onclose = stop;
+  client.onerror = stop;
   server.onerror = stop;
   process.stdin.once("end", stop); process.stdin.once("close", stop);
   process.stdout.once("error", stop);
@@ -35,9 +37,18 @@ export async function serveStdio(options: { url: string; token: string; workspac
   });
   server.setRequestHandler(CallToolRequestSchema, request => {
     if (!toolNames.has(request.params.name)) throw new McpError(ErrorCode.MethodNotFound, "Unknown Task Conductor tool");
-    const input = request.params.arguments ?? {};
-    return client.callTool({ ...request.params, arguments: request.params.name === "task_create" && input.workspace === undefined
-      ? { ...input, workspace: options.workspace } : input });
+    let input = request.params.arguments ?? {};
+    if (request.params.name === "task_create") {
+      if (options.readNotification) {
+        try { input = { ...input, notification: options.readNotification() }; }
+        catch {
+          const value = { ok: false, code: "precondition", error: "通知绑定不可用；请检查宿主会话绑定文件后再创建任务。" };
+          return { content: [{ type: "text" as const, text: JSON.stringify(value) }], structuredContent: value, isError: true };
+        }
+      }
+      if (input.workspace === undefined) input = { ...input, workspace: options.workspace };
+    }
+    return client.callTool({ ...request.params, arguments: input });
   });
   try {
     await client.connect(new StreamableHTTPClientTransport(url, {

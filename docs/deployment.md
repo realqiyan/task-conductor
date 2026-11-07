@@ -1,6 +1,6 @@
 # 安装与运行
 
-支持 Linux 和 macOS，要求 Node.js **22.19+** 与 npm。安装包包含运行产物，不需要源码或 TypeScript。本文描述当前实现；已发布版本和平台证据见[验证说明](validation.md)，发布操作见[发布说明](release.md)。
+支持 Linux 和 macOS，服务及非 dsh 接入要求 Node.js **22.19+** 与 npm；使用 dsh 或运行 dsh 集成测试要求 **24.9+**。已发布安装包包含运行产物，不需要源码或 TypeScript。本文描述当前实现；`0.1.6` 候选版本包含新增 dsh 接入，尚未发布，发布前使用下述[本地构建入口](#源码与未发布接入)。实际发布和平台证据见[验证说明](validation.md)。
 
 ## 安装与初始化
 
@@ -25,9 +25,25 @@ task-conductor setup --home /absolute/private/task-conductor \
 
 安装目录和数据目录须属于当前用户，使用规范绝对路径和私有权限。setup 输出文件路径，不打印 token。自定义 `--home` 后，后续命令及 MCP 配置使用同一路径。初始化不安装执行 CLI 或 ACP 适配器，不执行原生登录。
 
+## 源码与未发布接入
+
+新增 dsh 插件及其通知绑定需要配套的 `0.1.6` 服务支持。当前为未发布候选，使用同一源码构建插件和服务。在仓库根目录构建服务 tarball，输出目录须已存在：
+
+```bash
+npm ci --ignore-scripts
+npm pack --pack-destination /absolute/artifacts
+npm install -g /absolute/artifacts/task-conductor-0.1.6.tgz
+```
+
+`npm pack` 的 prepack 会构建服务；开发依赖含 dsh，因此此源码路径使用 Node.js 24.9+。首次安装后运行 `task-conductor setup`；替换已有安装先按[升级流程](upgrades.md)检查工作、停服备份，再在同一 prefix 安装并完整重连。不要用面向 registry 的 `task-conductor update` 获取未发布源码。
+
+也可在 `npm ci --ignore-scripts && npm run build` 后直接使用源码 `bin/task-conductor.mjs`。dsh 启动环境的 `TASK_CONDUCTOR_PREFLIGHT_COMMAND` 指向该文件的绝对路径，`TASK_CONDUCTOR_PREFLIGHT_HOME` 指向 setup 使用的 home。两者共同选择 dsh 的检查、MCP 和通知桥接；重开 profile 后生效。插件需单独[打包并安装到已有 profile](host-integrations.md#未发布资产的本地验收)，不随服务安装自动注册。
+
 ## MCP 接入与工作目录
 
-Pi、Claude Code 和 Codex 可使用[可安装接入包](host-integrations.md)先安装使用引导，再经确认安装服务、完成 setup 和宿主配置。以下是其他宿主或手工配置的通用入口。
+Pi、dsh、Claude Code 和 Codex 可使用[可安装接入包](host-integrations.md)，通过共享 skill 完成服务安装、setup 和连接。dsh 插件在每个根会话通过启动检查后创建原生 MCP，使用 `/task-conductor status` 查看、`/task-conductor connect` 重连，无需手工添加以下配置。其 MCP cwd 固定为该原生会话的 header cwd；子代理不能借用父连接。
+
+以下是其他宿主或手工配置的通用入口。
 
 在宿主的 MCP 配置中添加命令，例如采用 `mcpServers` 格式的宿主：
 
@@ -54,7 +70,9 @@ Pi、Claude Code 和 Codex 可使用[可安装接入包](host-integrations.md)�
 
 每次 MCP 连接初始化时，后台从自己的原生 PATH 检测 pi、codex、claude 和 opencode。没有这四种 CLI 且没有就绪的自定义执行端时，拒绝 MCP 连接；CLI/Web 管理入口仍可使用。自定义本机 stdio ACP 可通过[管理员注册入口](cli.md#自定义本机-acp-接入)接入，注册无须重启。安装和认证由对应官方工具负责：[Pi](https://github.com/earendil-works/pi/tree/v1.3.0/packages/coding-agent/docs)、[Codex](https://github.com/openai/codex)、[Claude Code](https://code.claude.com/docs/en/overview)、[OpenCode](https://opencode.ai/docs/)。
 
-发现原生 CLI 后，后台为缺少 ACP 适配器的执行端安装当时最新版，已有安装直接复用；OpenCode 使用原生 ACP 命令。安装在后台进行，可用 MCP `executor_list`、`task-conductor executor list` 或 Web 查看准备结果。任务只能选择就绪执行端。适配器安装失败时保留管理入口和其他就绪执行端，修正原因后显式刷新或升级。包映射和安装实现见 [discovery.ts](../src/integrations/acp/discovery.ts)。
+dsh 通过自定义执行端接入，使用 `dsh-acp` ID 注册规范绝对路径的 `dsh`，参数为 `["--profile", "acp"]`。不增加内置自动发现项，也不保留 `dsh` ID。模型、工具、认证和 ACP profile 由 dsh 原生配置管理，服务启动它时继承后台过滤后的原生环境。注册文件与命令见[操作说明](../plugin/skills/using-task-conductor/references/custom-acp.md#dsh-acp-执行端)。它可作为唯一就绪执行端；内部 pi durable 协调仍由服务提供，不需要交互式 Pi CLI，也不共享宿主或 dsh 执行端的模型配置。
+
+发现内置原生 CLI 后，后台为缺少 ACP 适配器的执行端安装当时最新版，已有安装直接复用；OpenCode 使用原生 ACP 命令。安装在后台进行，可用 MCP `executor_list`、`task-conductor executor list` 或 Web 查看准备结果。任务只能选择就绪执行端。适配器安装失败时保留管理入口和其他就绪执行端，修正原因后显式刷新或升级。包映射和安装实现见 [discovery.ts](../src/integrations/acp/discovery.ts)。
 
 适配器保存在安装目录的私有 `adapters/` 中，不修改全局 npm 包或执行 CLI 的原生配置。普通重连不访问 registry 升级已有适配器。显式更新使用 `task-conductor executor upgrade codex --yes`，再查询状态；升级期间暂停向该执行端派发新工作，新版本发布成功前保留原安装，活动 ACP 进程不因升级被重启。重新检测和升级直接作用于当前执行端目录，无需重启，也不保存启动配置。OpenCode 通过原生 CLI 的安装渠道更新。命令入口见 [CLI 说明](cli.md#执行端发现与更新)。
 

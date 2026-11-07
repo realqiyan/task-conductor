@@ -84,7 +84,7 @@ const reasons = {
 };
 
 export function onboardingNotice(state, host) {
-  const entry = { pi: "/skill:using-task-conductor", claude: "/task-conductor:using-task-conductor", codex: "$using-task-conductor" }[host];
+  const entry = { pi: "/skill:using-task-conductor", dsh: "skill 工具加载 using-task-conductor", claude: "/task-conductor:using-task-conductor", codex: "$using-task-conductor" }[host];
   if (!entry || !reasons[state]) return null;
   const message = reasons[state] + " 请运行 " + entry + " 查看引导。本次未尝试安装、修复或启动服务。";
   return {

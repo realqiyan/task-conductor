@@ -5,7 +5,7 @@ const help = `用法：task-conductor <命令>
   setup [选项]              交互式初始化；参数见 setup --help
   update [选项]             更新 npm 安装并完整重启后台；参数见 update --help
   migrate [选项]            离线数据升级、备份与续接；参数见 migrate --help
-  mcp [--home 目录]         建立 MCP stdio 连接，启动或复用共享后台
+  mcp [选项]               建立 MCP stdio 连接；参数见 mcp --help
   start [--home 目录]       在前台运行服务
   stop [--home 目录]        停止共享后台
   restart [--home 目录]     重启服务运行进程并检查就绪状态
@@ -44,16 +44,24 @@ try {
         } catch { throw new Error("通知桥接不可用；未确认事件保留，请检查服务状态和版本。"); }
       }
     } else if (["start", "mcp", "stop"].includes(command)) {
-      if (args.includes("--help")) { console.log("用法：task-conductor " + command + " [--home 绝对目录]" + (command === "stop" ? " [--json]" : "")); }
+      if (args.includes("--help")) { console.log("用法：task-conductor " + command + " [--home 绝对目录]" + (command === "stop" ? " [--json]" : command === "mcp" ? " [--notification-file 绝对文件路径]" : "")); }
       else {
-        const json = command === "stop" && args.includes("--json");
-        if (args.filter(arg => arg === "--json").length > 1) throw new Error("重复选项：--json");
-        const options = lib.argumentsFor(json ? args.filter(arg => arg !== "--json") : args);
-        if (Object.keys(options).some(key => key !== "home")) throw new Error("此命令只接受 --home 选项");
+        const options = {};
+        for (let index = 0; index < args.length; index++) {
+          const arg = args[index], key = arg.replace(/^--/, "");
+          if (Object.hasOwn(options, key)) throw new Error("重复选项：" + arg);
+          if (command === "stop" && arg === "--json") options.json = true;
+          else if (arg === "--home" || (command === "mcp" && arg === "--notification-file")) {
+            const value = args[++index];
+            if (!value || value.startsWith("--")) throw new Error(arg + " 缺少值");
+            options[key] = value;
+          } else throw new Error("此命令不支持该选项");
+        }
+        const json = options.json === true;
         const root = lib.installRoot(options);
         if (command === "mcp") {
           const { runMcp } = await import("../dist/application/mcp-entry.js");
-          await runMcp(root);
+          await runMcp(root, options["notification-file"]);
         } else if (command === "stop") {
           const { controlService } = await import("../dist/integrations/local-service/control.js");
           console.log(JSON.stringify({ event: "stopped", ...await controlService(root, "stop") }, null, json ? undefined : 2));
@@ -69,7 +77,7 @@ try {
   }
 } catch (error) {
   const message = process.argv[2] === "mcp"
-    ? error.message + "\n安装、初始化或连接排障请使用 using-task-conductor：Pi /skill:using-task-conductor；Claude Code /task-conductor:using-task-conductor；Codex $using-task-conductor。先核查原因，不自动重装或重放工作。"
+    ? error.message + "\n安装、初始化或连接排障请使用 using-task-conductor：Pi /skill:using-task-conductor；dsh /using-task-conductor；Claude Code /task-conductor:using-task-conductor；Codex $using-task-conductor。先核查原因，不自动重装或重放工作。"
     : error.message;
   console.error(process.argv.includes("--json") ? JSON.stringify({ error: message }) : message);
   process.exitCode = 1;

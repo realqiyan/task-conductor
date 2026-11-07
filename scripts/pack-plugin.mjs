@@ -17,8 +17,13 @@ assert.equal(pkg.license, "MIT");
 assert(!pkg.private);
 assert.equal(pkg.publishConfig.access, "public");
 assert.equal(pkg.publishConfig.tag, "latest");
-for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies", "scripts", "bin"]) {
+for (const field of ["dependencies", "devDependencies", "optionalDependencies", "scripts", "bin"]) {
   assert(!pkg[field], "Host installation must not install or execute the service: " + field);
+}
+for (const [name, version] of Object.entries(pkg.peerDependencies)) {
+  assert(name.startsWith("@deepseek-ai/dsh-"));
+  assert.equal(version, "*");
+  assert.equal(pkg.peerDependenciesMeta[name]?.optional, true);
 }
 for (const path of [".claude-plugin/plugin.json", ".codex-plugin/plugin.json"]) assert.equal(json(path).version, pkg.version);
 for (const path of [".claude-plugin/marketplace.json", ".agents/plugins/marketplace.json"]) {
@@ -34,8 +39,9 @@ assert.equal(packed.status, 0, "Host package failed to pack: " + packed.stderr);
 const [artifact] = JSON.parse(packed.stdout);
 const required = [
   "package.json", "README.md", "LICENSE", "mcp.json",
-  "pi-extension.js", "hooks/claude.json", "hooks/codex.json",
+  "pi-extension.js", "dsh.js", "cordis.patch.yml", "hooks/claude.json", "hooks/codex.json",
   "scripts/preflight.mjs", "scripts/session-start.mjs", "scripts/notifications.mjs",
+  "scripts/notification-common.mjs", "scripts/dsh-notifications.mjs",
   ".claude-plugin/plugin.json", ".codex-plugin/plugin.json",
   "skills/using-task-conductor/SKILL.md",
   "skills/using-task-conductor/references/installation.md",

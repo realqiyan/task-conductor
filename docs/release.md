@@ -28,14 +28,14 @@ npm 接收发布后可能仍在处理包。[发布后验收](../scripts/verify-i
 
 ## 独立接入包
 
-[轻量包](../plugin/package.json)为 `task-conductor-plugin`，使用同一项目版本，不依赖服务或 SDK，不运行安装脚本。它允许先安装 `using-task-conductor`，再经用户确认安装服务；不是服务的替代安装。Claude Code/Codex 的正式 marketplace 也从该 npm 包获取插件；服务发行包不携带插件副本。未发布资产使用[本地快照](host-integrations.md#未发布资产的本地验收)。
+[轻量包](../plugin/package.json)为 `task-conductor-plugin`，使用同一项目版本，不包含服务运行时依赖或安装脚本；dsh SDK 声明为宿主提供的 optional peers。先安装 `using-task-conductor`，再按用户请求安装服务；插件和服务分别安装。Claude Code/Codex 的正式 marketplace 也从该 npm 包获取插件；服务发行包不携带插件副本。未发布资产使用[本地快照](host-integrations.md#未发布资产的本地验收)。
 
 ```bash
 npm run pack:plugin
 # 产物：task-conductor-plugin-<项目版本>.tgz
 ```
 
-[独立包门禁](../scripts/pack-plugin.mjs)检查版本、无执行/依赖字段和实际包清单；不需要构建服务。[接入测试](../tests/host-integrations.test.mjs)使用临时目录和空 npm 缓存离线安装真实 tarball。发布前还须通过本文的项目检查，并用对应宿主验收引导发现与连接，不能将 skill 文本当成模型已执行的证据。
+[独立包门禁](../scripts/pack-plugin.mjs)检查版本、无安装执行或运行时依赖字段、宿主可选 peer 声明和实际包清单；不需要构建服务。[接入测试](../tests/host-integrations.test.mjs)使用临时目录和空 npm 缓存离线安装真实 tarball。发布前还须通过本文的项目检查，并用对应宿主验收引导发现与连接，不能将 skill 文本当成模型已执行的证据。
 
 CI 分别生成服务与插件候选产物；GitHub 发布工作流使用两个独立作业发布已检查的 tarball，并分别验证公开版本与安装。插件包须在 npm 配置自己的 Trusted Publisher；发布和安装成功不代表宿主模型已完成真实任务验收。实际证据见[验证说明](validation.md#宿主接入包)。
 

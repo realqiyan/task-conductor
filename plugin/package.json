@@ -1,8 +1,23 @@
 {
   "name": "task-conductor-plugin",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "type": "module",
-  "description": "在 Pi、Claude Code 和 Codex 中安装、配置并通过现有 MCP 工具使用 Task Conductor",
+  "description": "在 Pi、dsh、Claude Code 和 Codex 中安装、配置并通过原生 MCP 工具使用 Task Conductor",
+  "engines": { "node": ">=22.19.0", "dsh": ">=0.2.2-rc.1" },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "exports": { ".": "./dsh.js", "./*": "./*" },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-mcp-client": "*",
+    "@deepseek-ai/dsh-skill-filesystem": "*",
+    "@deepseek-ai/dsh-llm": "*",
+    "@deepseek-ai/dsh-session": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-mcp-client": { "optional": true },
+    "@deepseek-ai/dsh-skill-filesystem": { "optional": true },
+    "@deepseek-ai/dsh-llm": { "optional": true },
+    "@deepseek-ai/dsh-session": { "optional": true }
+  },
   "license": "MIT",
   "author": "realqiyan",
   "keywords": [
@@ -20,6 +35,8 @@
     ".codex-plugin/plugin.json",
     "mcp.json",
     "pi-extension.js",
+    "dsh.js",
+    "cordis.patch.yml",
     "hooks/",
     "scripts/",
     "skills/",

@@ -1,13 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn, execFileSync, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { chmodSync, cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { controlService } from "../dist/integrations/local-service/control.js";
+import { replacePrivateText } from "../dist/infrastructure/private-files.js";
 import { inspectInstallation } from "../plugin/scripts/preflight.mjs";
 
 const cli = resolve("bin/task-conductor.mjs");
@@ -25,8 +27,8 @@ async function call(client, name, args = {}) {
   assert.equal(result.isError, false, JSON.stringify(result));
   return result.structuredContent.data;
 }
-function connection(home, cwd, env, command = cli) {
-  const child = spawn(process.execPath, [command, "mcp", "--home", home], {
+function connection(home, cwd, env, command = cli, args = []) {
+  const child = spawn(process.execPath, [command, "mcp", "--home", home, ...args], {
     cwd, env, detached: true, stdio: ["pipe", "pipe", "pipe"],
   });
   let stdout = "", stderr = "";
@@ -59,6 +61,146 @@ test("MCP startup requires explicit initialization and creates no installation",
     assert.match(result.stderr, /setup first/);
     assert.equal(existsSync(home), false);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("MCP notification files bind each creation after connect and reject unsafe bindings before HTTP dispatch", { timeout: 30_000 }, async t => {
+  const root = mkdtempSync(join(realpathSync(tmpdir()), "task-conductor-binding-")), home = join(root, "private");
+  const nativeBin = join(root, "bin"), userHome = join(root, "user"), workspace = join(root, "workspace"), override = join(root, "selected workspace");
+  const bindingDirectory = join(root, "binding"), notificationFile = join(bindingDirectory, "origin.json");
+  for (const directory of [nativeBin, userHome, workspace, override, bindingDirectory]) mkdirSync(directory, { mode: 0o700 });
+  // The discoverable real failing program is never executed; all tasks are scheduled in the future.
+  symlinkSync("/usr/bin/false", join(nativeBin, "opencode"));
+  const env = { PATH: nativeBin, HOME: userHome }, peers = [];
+  t.after(async () => {
+    for (const peer of peers) {
+      await peer.client.close().catch(() => {}); peer.child.stdin.end();
+      if (peer.child.exitCode === null && peer.child.signalCode === null) peer.child.kill("SIGTERM");
+      const timer = setTimeout(() => peer.child.kill("SIGKILL"), 5000);
+      await peer.closed; clearTimeout(timer);
+    }
+    try { await controlService(home, "stop", 8000); }
+    catch (error) { if (error.kind !== "unreachable") throw error; }
+    rmSync(root, { recursive: true, force: true });
+  });
+  const cliCall = (command, ...args) => spawnSync(process.execPath, [cli, command, "--home", home, ...args], {
+    cwd: workspace, env, encoding: "utf8", timeout: 10_000,
+  });
+  const initialized = cliCall("setup", "--data-dir", join(home, "data"), "--port", "0", "--generate-tokens", "--yes");
+  assert.equal(initialized.status, 0, initialized.stderr);
+  const configPath = join(home, "data/config.json"), config = JSON.parse(readFileSync(configPath, "utf8"));
+  config.coordinator = { provider: "openai", model: "gpt-4.1" };
+  config.disabledExecutors = ["pi", "codex", "claude"];
+  writeFileSync(configPath, JSON.stringify(config), { mode: 0o600 });
+
+  for (const [command, ...args] of [
+    ["mcp", "--notification-file", "relative.json"],
+    ["mcp", "--notification-file", notificationFile + "\n"],
+    ["mcp", "--notification-file"],
+    ["mcp", "--notification-file", notificationFile, "--notification-file", notificationFile],
+    ["mcp", "--home", home],
+    ["mcp", "--notification-file", notificationFile, "--unknown"],
+    ["mcp", "--notification-file", notificationFile, "--data-dir", root],
+    ["mcp", "--notification-file", notificationFile, "--json"],
+    ["start", "--notification-file", notificationFile],
+    ["stop", "--notification-file", notificationFile],
+    ["setup", "--check", "--notification-file", notificationFile],
+    ["notifications", "--notification-file", notificationFile],
+  ]) {
+    const result = cliCall(command, ...args);
+    assert.equal(result.status, 1, `${command} ${args.join(" ")}: ${result.stderr}`);
+    assert.equal(result.stdout, "");
+    assert.equal(existsSync(join(home, "launcher.log")), false, "invalid arguments must not start the backend");
+  }
+  await assert.rejects(controlService(home, "status"), error => error.kind === "unreachable");
+
+  const peer = connection(home, workspace, env, cli, ["--notification-file", notificationFile]); peers.push(peer);
+  await peer.connect();
+  assert.equal(existsSync(notificationFile), false, "the binding may be published after MCP connects");
+  const ready = await controlService(home, "status");
+  assert.equal((await peer.client.listTools()).tools.length, 12);
+  assert.equal((await call(peer.client, "service_status")).coordinatorConfigured, true);
+  assert.equal((await call(peer.client, "executor_list")).executors.find(item => item.id === "opencode").state, "ready");
+  const foreign = Object.freeze({ projectId: "uuid:" + randomUUID(), sessionId: "pi:foreign" });
+  const input = Object.freeze({ requestKey: "binding", name: "绑定任务", prompt: "检查工作目录",
+    nodes: Object.freeze([Object.freeze({ id: "inspect", executorId: "opencode", prompt: "检查工作目录" })]),
+    schedule: Object.freeze({ type: "once", at: new Date(Date.now() + 3_600_000).toISOString() }), notification: foreign });
+  const assertBindingError = result => {
+    assert.equal(result.isError, true, JSON.stringify(result));
+    assert.equal(result.structuredContent.ok, false);
+    assert.equal(result.structuredContent.code, "precondition");
+    assert.equal(typeof result.structuredContent.error, "string");
+    assert(result.structuredContent.error.length > 0);
+    assert.deepEqual(JSON.parse(result.content[0].text), result.structuredContent);
+    const text = JSON.stringify(result);
+    for (const privateValue of [root, "private-binding-value", foreign.projectId, foreign.sessionId]) assert(!text.includes(privateValue));
+  };
+  const rejectCreation = async () => {
+    assertBindingError(await peer.client.callTool({ name: "task_create", arguments: input }));
+    assert.deepEqual((await call(peer.client, "task_list")).items, [], "failed binding must not persist a task");
+  };
+  // With the real HTTP process paused, a bounded tool error can only come from stdio before forwarding.
+  process.kill(ready.pid, "SIGSTOP");
+  try {
+    assertBindingError(await peer.client.callTool({ name: "task_create", arguments: input }, undefined, { timeout: 2000 }));
+  } finally { process.kill(ready.pid, "SIGCONT"); }
+  await rejectCreation();
+  const origin = { projectId: "uuid:" + randomUUID(), sessionId: "dsh:" + randomUUID() };
+  for (const text of ["{\"private-binding-value\":", JSON.stringify({ ...origin, privateField: "private-binding-value" }),
+    JSON.stringify({ projectId: origin.projectId }), JSON.stringify({ ...origin, projectId: "private-binding-value" }),
+    JSON.stringify({ ...origin, sessionId: "invalid/session" }), "null"]) {
+    replacePrivateText(notificationFile, text, true);
+    await rejectCreation();
+  }
+  replacePrivateText(notificationFile, JSON.stringify(origin));
+  chmodSync(notificationFile, 0o644);
+  await rejectCreation();
+  chmodSync(notificationFile, 0o600);
+  chmodSync(bindingDirectory, 0o755);
+  await rejectCreation();
+  chmodSync(bindingDirectory, 0o700);
+  const linkedFile = join(bindingDirectory, "linked.json");
+  replacePrivateText(linkedFile, JSON.stringify(origin), true);
+  rmSync(notificationFile); symlinkSync(linkedFile, notificationFile);
+  await rejectCreation();
+  rmSync(notificationFile);
+  mkdirSync(notificationFile, { mode: 0o700 });
+  await rejectCreation();
+  rmSync(notificationFile, { recursive: true });
+
+  replacePrivateText(notificationFile, JSON.stringify(origin), true);
+  const first = await call(peer.client, "task_create", input);
+  assert.deepEqual(first.notification, origin);
+  assert.equal(first.workspace, workspace);
+  assert.equal((await call(peer.client, "task_create", input)).taskId, first.taskId);
+  assert.deepEqual(input.notification, foreign);
+  const nextOrigin = { projectId: origin.projectId, sessionId: "dsh:" + randomUUID() };
+  replacePrivateText(notificationFile, JSON.stringify(nextOrigin));
+  const conflict = await peer.client.callTool({ name: "task_create", arguments: input });
+  assert.equal(conflict.isError, true); assert.equal(conflict.structuredContent.code, "conflict");
+  assert.deepEqual((await call(peer.client, "task_get", { taskId: first.taskId })).notification, origin);
+  const second = await call(peer.client, "task_create", { ...input, requestKey: "override", workspace: override, notification: null });
+  assert.deepEqual(second.notification, nextOrigin);
+  assert.equal(second.workspace, override);
+  const { notification: _notification, ...unboundInput } = input;
+  const third = await call(peer.client, "task_create", { ...unboundInput, requestKey: "omitted" });
+  assert.deepEqual(third.notification, nextOrigin);
+
+  rmSync(notificationFile);
+  assertBindingError(await peer.client.callTool({ name: "task_create", arguments: { ...input, requestKey: "removed" } }));
+  assertBindingError(await peer.client.callTool({ name: "task_create", arguments: input }));
+  assert.deepEqual((await call(peer.client, "task_list")).items.map(item => item.taskId), [first.taskId, second.taskId, third.taskId]);
+  assert.equal((await call(peer.client, "task_schedule_control", { taskId: second.taskId, action: "pause" })).scheduleStatus, "paused");
+  assert.deepEqual((await call(peer.client, "task_run_list", { taskId: first.taskId })).items, []);
+  assert.deepEqual((await call(peer.client, "task_get", { taskId: second.taskId })).notification, nextOrigin);
+  await peer.client.close(); peer.child.stdin.end(); await waitClosed(peer);
+  assert.equal((await controlService(home, "status")).instanceId, ready.instanceId);
+  const reader = connection(home, workspace, env); peers.push(reader); await reader.connect();
+  assert.deepEqual((await call(reader.client, "task_get", { taskId: first.taskId })).notification, origin);
+  const unbound = await call(reader.client, "task_create", { ...unboundInput, requestKey: "unbound" });
+  assert.equal(unbound.notification, null);
+  const supplied = await call(reader.client, "task_create", { ...input, requestKey: "supplied" });
+  assert.deepEqual(supplied.notification, foreign);
+  for (const line of peer.stdout.trim().split("\n")) assert.equal(JSON.parse(line).jsonrpc, "2.0");
 });
 
 test("concurrent stdio projects share one backend whose future tasks survive EOF and process-group SIGHUP", { timeout: 30_000 }, async t => {

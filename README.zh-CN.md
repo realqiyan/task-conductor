@@ -12,11 +12,11 @@
 | --- | --- |
 | 安装、配置、运行 | [部署说明](docs/deployment.md) |
 | 服务包更新、数据检查与离线迁移 | [升级说明](docs/upgrades.md) |
-| Pi、Claude Code、Codex 接入包与 using-task-conductor 使用引导 | [宿主接入](docs/host-integrations.md) |
+| Pi、dsh、Claude Code、Codex 接入包与 using-task-conductor 使用引导 | [宿主接入](docs/host-integrations.md) |
 | 本机控制台、配置保存与 Web/CLI 重启 | [控制台说明](docs/web-console.md) |
 | 命令行配置、凭据和任务管理 | [CLI 说明](docs/cli.md) |
 | 理解产品目标和架构选择 | [总体方案](docs/design-proposal.md) |
-| Pi 原会话自动通知、身份与可靠补读 | [通知设计与使用](docs/notifications.md) |
+| Pi/dsh 原会话自动通知、身份与可靠补读 | [通知设计与使用](docs/notifications.md) |
 | Task 持续对话、Document 记忆与补充交付 | [会话设计](docs/task-conversation-plan.md) |
 | 查询项目术语 | [词汇表](CONTEXT.md) |
 | 查找实现与对应测试 | [代码导航](docs/technical-design.md) |
@@ -28,7 +28,7 @@
 
 ## 使用入口
 
-Linux/macOS，Node.js **22.19+**。npm 安装包自带运行产物，无需从源码构建。实际发布状态及平台验收范围见[发布证据](docs/validation.md#npm-发布候选验证)。
+Linux/macOS，服务及非 dsh 接入要求 Node.js **22.19+**，dsh 要求 **24.9+**。已发布 npm 安装包自带运行产物；`0.1.6` 候选版本包含新增 dsh 接入，尚未发布，发布前使用[本地插件 tarball 和对应服务构建](docs/host-integrations.md#未发布资产的本地验收)。实际发布状态及平台验收范围见[发布证据](docs/validation.md#npm-发布候选验证)。
 
 ```bash
 npm install -g task-conductor
@@ -40,7 +40,9 @@ task-conductor status
 task-conductor restart
 ```
 
-setup 确认本机配置；MCP 连接自动启动或复用独立后台，宿主退出后后台继续运行。首次使用须安装至少一种原生执行 CLI，或[注册自定义本机 stdio ACP](docs/cli.md#自定义本机-acp-接入)，并准备其原生认证。Pi、Claude Code 和 Codex 可先安装[接入包](docs/host-integrations.md)，再通过 `using-task-conductor` 引导安装服务、完成 setup 和使用现有 MCP 工具。执行端准备与服务管理见[部署说明](docs/deployment.md)。
+setup 确认本机配置；MCP 连接自动启动或复用独立后台，宿主退出后后台继续运行。首次使用须安装至少一种原生执行 CLI，或[注册自定义本机 stdio ACP](docs/cli.md#自定义本机-acp-接入)，并准备其原生认证。Pi、dsh、Claude Code 和 Codex 可先安装[接入包](docs/host-integrations.md)，通过 `using-task-conductor` 完成服务安装、setup 和 MCP 操作。
+
+dsh 使用已有 profile 的原生插件入口，调用 `/using-task-conductor` 或通过 `skill` 工具加载引导。插件按根会话检查并创建 MCP，通知回到原持久会话；使用 `/task-conductor status` 查看、`/task-conductor connect` 重连，无须另添手工 MCP 项。dsh 也可按[自定义 ACP 操作](plugin/skills/using-task-conductor/references/custom-acp.md#dsh-acp-执行端)将 `dsh --profile acp` 注册为执行端。服务内部保留 pi durable 协调，不要求交互式 Pi CLI。执行端准备与服务管理见[部署说明](docs/deployment.md)。
 
 采用 `mcpServers` 格式的宿主可添加以下配置；文件位置和外层结构由宿主决定：
 
@@ -76,6 +78,8 @@ setup 确认本机配置；MCP 连接自动启动或复用独立后台，宿主�
 - 服务更新的前置检查、备份、宿主重连和旧版入口统一见[升级说明](docs/upgrades.md)。`update` 不更新插件或执行端，不自动迁移数据；`restart` 仅重启服务子进程以应用配置。
 
 ## 开发
+
+dsh 开发依赖与集成测试使用 Node.js **24.9+**；仓库锁定 dsh `0.2.2-rc.1`。服务和非 dsh 使用者仍支持 Node.js 22.19+。
 
 ```bash
 npm ci --ignore-scripts
