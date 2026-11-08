@@ -1,6 +1,6 @@
 # npm 发布
 
-npm 包为 [task-conductor](https://www.npmjs.com/package/task-conductor)，发布账号 **realqiyan**，许可证 [MIT](../LICENSE)。发布使用 **latest**，默认 `npm install -g task-conductor` 安装该标签指向的版本。版本号不替代生产可用性验证。实际完成情况见[验证说明](validation.md#npm-发布候选验证)。
+npm 包为 [task-conductor](https://www.npmjs.com/package/task-conductor)，发布账号 **realqiyan**，许可证 [MIT](../LICENSE)。发布使用 **latest**，默认全局安装选择该标签。发布前按下文完成候选验收。
 
 版本、引擎、公开文件和 registry 设置以 [package.json](../package.json) 为准。[打包门禁](../scripts/pack-release.mjs)检查实际包清单；消费者安装不运行构建脚本。不要发布工作目录、私有环境、SQLite、运行日志、模型会话或测试证据。
 
@@ -16,32 +16,30 @@ VERSION=$(node -p "require('./package.json').version")
 npm run test:install -- "./task-conductor-$VERSION.tgz"
 ```
 
-涉及存储格式变化的发布还须通过[数据迁移验收](upgrades.md#支持范围)，不能以新安装成功替代已有数据升级验证。
+启用真实 npm 联网更新测试时，使用 `TASK_CONDUCTOR_UPDATE_REGISTRY=https://registry.npmjs.org npm test`。涉及存储格式变化的发布还须通过[数据迁移验收](upgrades.md#支持范围)。
 
 [安装验证](../scripts/verify-install.mjs)在独立临时目录执行真正的全局 npm 安装，禁用 lifecycle scripts，不依赖项目源码或编译器。它检查服务生命周期和认证，不调用模型或启动 ACP 工作；具体检查项以脚本为准。
 
-输出报告只包含结果和证据目录，不包含 token；只将实际运行的宿主平台记为通过，其他平台明确记为未执行。临时目录权限为私有，内有验证专用随机凭据及空任务库，不上传这些目录。基础测试中的真实 PTY 用例先检查平台及 `script` 能否创建终端；能力不可用时明确跳过，不能把跳过当成终端验收通过。
+报告记录实际平台、结果和证据目录；PTY 能力缺失时标为跳过。临时目录含验证凭据，保持私有且不上传。其他平台分别运行相同检查。
 
-脚本只验证当前环境，不在 Linux 上推断 macOS 行为；需要 macOS 证据时，在相应环境单独运行同一命令。本地可设置 `npm_config_cache` 复用下载缓存，tarball 验证可用 `npm_config_registry` 指定依赖镜像，报告会记录其地址；`--registry` 发布后验收固定使用 npmjs。不能以复制项目的 node_modules 替代安装验证。
+本地可设置 `npm_config_cache` 复用缓存，tarball 验证可用 `npm_config_registry` 指定依赖镜像；`--registry` 发布后验收固定使用 npmjs。安装验证须从包解析依赖，不复制项目 node_modules。
 
 npm 接收发布后可能仍在处理包。[发布后验收](../scripts/verify-install.mjs)有限等待公开 `latest` 指向目标版本，再执行默认全局安装；等待只读取 registry。超时先核对版本状态，不重复上传。
 
 ## 独立接入包
 
-[轻量包](../plugin/package.json)为 `task-conductor-plugin`，使用同一项目版本，不包含服务运行时依赖或安装脚本；dsh SDK 声明为宿主提供的 optional peers。先安装 `using-task-conductor`，再按用户请求安装服务；插件和服务分别安装。Claude Code/Codex 的正式 marketplace 也从该 npm 包获取插件；服务发行包不携带插件副本。未发布资产使用[本地快照](host-integrations.md#未发布资产的本地验收)。
+[插件包](../plugin/package.json)为 `task-conductor-plugin`，与服务同版本、独立分发。宿主安装方法见[接入说明](host-integrations.md)。
 
 ```bash
 npm run pack:plugin
 # 产物：task-conductor-plugin-<项目版本>.tgz
 ```
 
-[独立包门禁](../scripts/pack-plugin.mjs)检查版本、无安装执行或运行时依赖字段、宿主可选 peer 声明和实际包清单；不需要构建服务。[接入测试](../tests/host-integrations.test.mjs)使用临时目录和空 npm 缓存离线安装真实 tarball。发布前还须通过本文的项目检查，并用对应宿主验收引导发现与连接，不能将 skill 文本当成模型已执行的证据。
-
-CI 分别生成服务与插件候选产物；GitHub 发布工作流使用两个独立作业发布已检查的 tarball，并分别验证公开版本与安装。插件包须在 npm 配置自己的 Trusted Publisher；发布和安装成功不代表宿主模型已完成真实任务验收。实际证据见[验证说明](validation.md#宿主接入包)。
+[独立包门禁](../scripts/pack-plugin.mjs)检查版本、依赖声明和实际包清单；[接入测试](../tests/host-integrations.test.mjs)验证 tarball 离线安装。发布前运行项目检查，并在目标宿主验收技能发现与连接。各包须分别配置 npm Trusted Publisher。
 
 ## GitHub Actions 门禁与受控发布
 
-- [Validate](../.github/workflows/ci.yml)：PR/master 或手动触发时在 Ubuntu 执行 TypeScript 与依赖边界检查、基础测试及构建；检查包清单。安装任务**不 checkout 项目源码**，只接收 tarball 和验收脚本，在当前 Linux runner 验证启动、重启及认证检查。常规 CI 使用 Linux runner，不能据此推断 macOS 验证结果。
+- [Validate](../.github/workflows/ci.yml)：PR/master 或手动触发时在 Ubuntu 执行 TypeScript 与依赖边界检查、基础测试及构建；检查包清单。安装任务只接收 tarball 和验收脚本，在 Linux runner 验证启动、重启及认证。
 - [Publish npm](../.github/workflows/publish.yml)：推送 `v*` tag 自动发布两个包，也保留手动入口；仅账号 realqiyan 可发起或重跑。[发布准入](../scripts/check-release.mjs)要求 tag 与包版本一致、锁文件版本一致，且提交已进入远端 master。手动入口仅接受 master 或版本 tag，输入版本须匹配，可选择两个包或单个包。通过全部门禁后发布已检查的 tarball，不重建、不执行包脚本；各包独立确认版本未占用，发布后核查 latest 并执行安装验证。
 - 普通 CI 没有 npm 凭据。发布作业使用 npm Trusted Publisher 和 GitHub OIDC，不读取 `NPM_TOKEN`；并发发布被串行化。
 
@@ -58,14 +56,15 @@ git push origin "v$VERSION"
 
 普通 master 推送只执行 CI，不发布 npm。不要移动或复用已推送的发布 tag；Git tag `v<版本号>` 触发工作流，npm dist-tag `latest` 决定默认安装版本，两者不同。
 
-两个包分别发布，不保证原子完成。某个包未发布时，核对 registry 后手动选择 master 或包含该发布流程的版本 tag，填写相同版本并选择未发布的包；已发布包需要复验时选择该包并启用 `verify_only`，跳过上传。不要重新上传已存在版本。服务包安装验收从本地 tarball 读取版本，`--registry` 模式必须提供 `EXPECTED_VERSION`，工作流会自动传入。
+两个包独立发布；部分完成时分别处理。某个包未发布时，核对 registry 后手动选择 master 或包含该发布流程的版本 tag，填写相同版本并选择未发布的包；已发布包需要复验时选择该包并启用 `verify_only`，跳过上传。不要重新上传已存在版本。服务包安装验收从本地 tarball 读取版本，`--registry` 模式必须提供 `EXPECTED_VERSION`，工作流会自动传入。
 
 首次启用前，由维护者完成以下配置：
+
 1. 创建 GitHub Environment **npm**，只允许 master 分支及 `v*` tag 部署；按仓库需要配置审核人。用 tag ruleset 限制发布 tag 的创建、更新和删除，仅仓库管理员可绕过。工作流中的 environment 名称本身**不自动创建审核保护**。
 2. 在两个 npm 包各自的 Trusted Publisher 设置中授权 GitHub 仓库 `realqiyan/task-conductor`、工作流 `publish.yml`、Environment `npm`，允许 `npm publish`。认证与 2FA 在 npm 官方界面完成，不上传本机登录凭据。
 3. 核查 master 与工作流修改权限，再推送版本 tag；需要手动发起时，在 Actions 选择 Publish npm 并输入已验收的版本。认证/权限失败须停止，不能换账号或跳过验证。
 
-发布作业使用 Node 24 与支持 OIDC 的 npm；命令明确传 `--tag latest --access public --provenance`。Trusted Publisher 授权和 provenance 是不同条件，设置工作流不等于 npm 已授权。首次配置和有效期限制以 [npm 官方说明](https://docs.npmjs.com/trusted-publishers/)为准。
+发布作业使用 Node 24 与支持 OIDC 的 npm，传入 `--tag latest --access public --provenance`。首次配置和有效期限制见 [npm 官方说明](https://docs.npmjs.com/trusted-publishers/)。
 
 ## 经授权的本机发布
 
@@ -83,8 +82,8 @@ npm view task-conductor dist-tags --json --registry=https://registry.npmjs.org
 EXPECTED_VERSION="$VERSION" node scripts/verify-install.mjs --registry
 ```
 
-登录成功不等于发布授权已完成。若 registry 返回需要 2FA 的 E403，停止发布；维护者须在自己的终端完成发布时认证，或配置有目标包发布权限、短有效期且获准 bypass 2FA 的 granular token。不要关闭账号 2FA，不在聊天、命令参数或日志中传递一次性验证码或 token；不把本机登录凭据自动上传到 GitHub。
+若 registry 返回需要 2FA 的 E403，停止发布；维护者须在自己的终端完成发布时认证，或配置有目标包发布权限、短有效期且获准 bypass 2FA 的 granular token。不要关闭账号 2FA，不在聊天、命令参数或日志中传递一次性验证码或 token；不把本机登录凭据自动上传到 GitHub。
 
-不得把 dry-run、上传成功提示或候选包安装当成 npmjs 完成证据。验收结论须有 registry 版本与 latest、默认安装和平台报告作为证据，并注明未执行的检查；按 [AGENTS.md](../AGENTS.md#tests-and-documentation)合并维护，不追加发布经过。发布结果不明时先查询 registry；同一版本不可覆盖，不盲目重试，也不擅自换版本。
+发布完成后核对 registry 版本、latest 和默认安装，在当次交付中说明结果与适用平台。结果不明时先查询 registry；同一版本不可覆盖，不盲目重试或擅自换版本。
 
 已发布候选有问题时，停止继续安装验证，保留证据并通知维护者决定弃用提示、tag 调整或新版本。不自动撤包、覆盖历史或删除用户数据。

@@ -1,8 +1,8 @@
 # 智能任务总体方案
 
-本文保留产品目标和当前架构取舍。实现入口见[代码导航](technical-design.md)，实际证据见[验证说明](validation.md)。
+本文保留产品目标和当前架构取舍，实现入口见[代码导航](technical-design.md)。
 
-Task 会话连续性、可靠输入、Document 记忆与补充交付的设计理由见[会话设计](task-conversation-plan.md)。真实模型验收边界见[验证说明](validation.md#task-持续对话与记忆)。
+Task 会话连续性、可靠输入、Document 记忆与补充交付的设计见[会话设计](task-conversation-plan.md)。
 
 使用流程简化的决策原因见[请求去重范围](adr/0001-task-request-scope.md)、[工作目录来源](adr/0002-mcp-workspace-source.md)和[适配器安装](adr/0003-adapter-installation.md)。
 
@@ -12,10 +12,10 @@ Task 会话连续性、可靠输入、Document 记忆与补充交付的设计理
 - 任务不依赖发起客户端持续在线，保留执行、交付、失败和缺少用户事实的记录。
 - 初始化由用户确认目录、端口、令牌及协调模型；内置执行端自动发现并按需准备适配器；自定义本机 stdio ACP 由管理员注册，持久化后立即生效，无须重启。stdio 接入连接独立后台，宿主退出后后台继续调度；宿主配置由用户添加，不自动识别宿主当前项目。
 - 协调者通过判断与记忆推进既定 DAG，对整体目标负责，解释中间结果、处理证据冲突和澄清并明确验收；领域工作交给 ACP 执行端。固定 DAG 不固定模型的工具调用路线。
-- 每个 Task 保留一条持续协调会话，支持主动讨论、补充信息和有来源的任务笔记；对话不等于执行。缺少事实时明确提问，回答后续接原 Run；额外执行与成果复用保留独立意图及不可变历史。
+- 每个 Task 保留一条持续协调会话，支持主动讨论、补充信息和有来源的任务笔记，执行由独立准入控制。缺少事实时明确提问，回答后续接原 Run；额外执行与成果复用保留独立意图及不可变历史。
 - 提供本机 Web 控制台，管理配置、查看任务并编辑任务名称与未来触发，范围见[控制台说明](web-console.md#操作范围)；CLI 覆盖全部 Web 管理能力，两端复用同一套服务。服务配置保存后通过 Web 或 CLI 重启生效；切换数据目录不搬迁或删除旧历史。
 
-Pi Agent、Codex、Claude、OpenCode 是 ACP 集成目标，不是嵌入本服务的领域执行器。声明支持、代码实现和真实验收必须区分。
+Pi Agent、Codex、Claude、OpenCode 通过 ACP 作为独立执行端接入。
 
 ## 架构选择
 
@@ -37,13 +37,13 @@ ACP 执行端：原生会话、领域推理和工具操作
 | 业务账本与模型会话分开 | 对话和工具记录不能代替派发、交付或外部业务事实 |
 | 单节点与多节点共用 Task 模型 | 不维护两套 API、存储适配或调度器 |
 
-时间计划和显式补充意图决定是否准入业务 Run；协调员只在该 Run 的权限与预算内决定节点派发。协议 turn 结束不等于交付完成，只有明确接受的执行端交付才能解锁依赖。
+时间计划和显式补充意图决定是否准入业务 Run；协调员只在该 Run 的权限与预算内决定节点派发。明确接受的执行端交付才能解锁依赖，整体完成由协调员判断。
 
 交付由协调员及下游 Agent 阅读，不要求统一 JSON 或固定模板，普通文本和 Markdown 均可。验收关注内容是否满足节点目标；只有调用方明确提出格式要求时才检查格式。协议封装不规定交付正文的格式。
 
 人工回复只补充事实，不授予权限或允许重放。会话丢失、外部结果不明时停止并核对，不能用新任务或新节点绕过。其他安全与持久性要求见[架构原则](architecture-guidelines.md)。
 
-Pi、dsh 原会话通知及后续渠道扩展边界见[通知方案](notifications.md)。插件轮询持久事件，通过宿主原生 follow-up 投递；当前不实现 Claude/Codex 任务通知、多渠道发送或纯提醒任务。
+Pi、dsh 支持原会话任务通知，使用方式与渠道范围见[通知方案](notifications.md)。
 
 ## 当前范围与暂缓能力
 
@@ -59,4 +59,4 @@ Pi、dsh 原会话通知及后续渠道扩展边界见[通知方案](notificatio
 - [ACP 会话](https://agentclientprotocol.com/protocol/v1/session-setup)、[工具与权限](https://agentclientprotocol.com/protocol/v1/tool-calls)
 - [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)
 
-实际依赖版本以 [package.json](../package.json) 和锁文件为准；协议说明不是验收证据。
+实际依赖版本以 [package.json](../package.json) 和锁文件为准。

@@ -27,13 +27,11 @@
 | 离线数据升级 | [迁移入口](../scripts/migrate.mjs)、[格式校验](../src/tasks/storage/store.ts)、[SDK 存储校验](../src/integrations/coordinator/storage.ts) | [migration.test.mjs](../tests/migration.test.mjs)、[升级说明](upgrades.md) |
 | 安装、更新与发布 | [命令入口](../bin/task-conductor.mjs)、[setup](../scripts/setup.mjs)、[包更新](../scripts/update.mjs)、[安装库](../scripts/install-lib.mjs)、[包门禁](../scripts/pack-release.mjs)、[发布准入](../scripts/check-release.mjs)、[工作流](../.github/workflows/) | [install.test.mjs](../tests/install.test.mjs)、[setup.test.mjs](../tests/setup.test.mjs)、[update.test.mjs](../tests/update.test.mjs)、[release.test.mjs](../tests/release.test.mjs)、[升级说明](upgrades.md)、[发布说明](release.md) |
 
-宿主安装资产位于 [plugin](../plugin/)，包含 Pi、dsh、Claude Code/Codex 原生入口、`using-task-conductor`、只读启动检查及 [Pi/dsh 会话通知](notifications.md)，不进入服务运行时依赖图。dsh SDK 是宿主提供的 optional peers，插件无运行时依赖或安装 hook；[仓库开发依赖](../package.json)锁定 dsh `0.2.2-rc.1`，运行其测试需要 Node.js 24.9+，服务和非 dsh 路径仍支持 22.19+。安装见[接入说明](host-integrations.md)。
+宿主接入位于 [plugin](../plugin/)，作为独立包分发；dsh SDK 由宿主提供。安装见[宿主接入](host-integrations.md)，通知归属与回执设计见[通知说明](notifications.md#可靠性与所有权)。
 
-[Pi 扩展](../plugin/pi-extension.js)与[dsh 插件](../plugin/dsh.js)都复用 CLI 检查摘要和共享 skill。dsh 的 skill provider 在检查之前注册，首轮原生 skill 目录可发现引导；异常通过原生 notice 提供上下文。每个非子代理根会话通过检查后，在自己的 Agent 作用域加载原生 MCP，固定 stdio cwd 为 session header 的 cwd；工具守卫拒绝子代理借用。`/task-conductor status` 查询状态，`connect` 重建该会话的连接；没有第二套模型循环或浏览器端连接所有者。
+[Pi 扩展](../plugin/pi-extension.js)与[dsh 插件](../plugin/dsh.js)复用 CLI 检查摘要和共享技能。dsh 先注册技能，再按根会话建立原生 MCP；stdio cwd 固定为 session header 的 cwd，子代理调用由工具守卫拒绝。HTTP 传输失败时 [stdio](../src/protocol/stdio.ts)关闭连接，宿主重连后重新解析地址，失败调用由调用方核查。
 
-冻结的 dsh 工具参数不在 hook 中修改。创建前保存并 flush 原生可忽略绑定记录，发布私有临时文件；[CLI](../bin/task-conductor.mjs)和[MCP 入口](../src/application/mcp-entry.ts)将 `--notification-file` 交给 [stdio](../src/protocol/stdio.ts)，由 stdio 严格读取、覆盖归属后转发 HTTP。上游 HTTP 传输失败会关闭 stdio，让宿主原生 MCP 重连时重新解析服务地址；不会重发失败的工具调用。会话恢复、fork 继承前缀及持久化回执的规则统一见[通知设计](notifications.md#可靠性与所有权)。
-
-[检查测试](../tests/host-preflight.test.mjs)覆盖只读摘要和故障分类；[独立包门禁](../scripts/pack-plugin.mjs)不构建或安装服务。[接入测试](../tests/host-integrations.test.mjs)、[dsh SDK 用例](../tests/dsh-integration.test.mjs)和[stdio 用例](../tests/stdio.test.mjs)是安装、会话作用域与真实工具调用的验证入口；实际结果由[验证说明](validation.md)维护。
+宿主验证入口为[启动检查](../tests/host-preflight.test.mjs)、[安装接入](../tests/host-integrations.test.mjs)、[dsh SDK](../tests/dsh-integration.test.mjs)和[插件包门禁](../scripts/pack-plugin.mjs)。
 
 ## 模型可见上下文
 
@@ -47,7 +45,7 @@
 | 协调者：角色、工具、当前任务状态与记忆 | [角色、工具与 SDK hooks](../src/integrations/coordinator/coordinator.ts)、[有界账本视图](../src/integrations/coordinator/context.ts)、[Document 与更新契约](../src/integrations/coordinator/memory.ts) |
 | ACP 执行端：节点要求、本轮背景和交付引用 | [派发组装](../src/tasks/execution-context.ts)、[派发调用](../src/tasks/supervisor.ts)、[ACP prompt](../src/integrations/acp/connection.ts)；原生提示、工具与配置由执行端管理 |
 
-协调状态、选定事实、记忆范围及节点首次和续接上下文的设计见[会话设计](task-conversation-plan.md)。宿主的技能发现和启动引导见[宿主接入](host-integrations.md)，事件进入原会话的时机及去重见[通知设计](notifications.md)。协调历史与压缩沿用 durable SDK；本项目没有另设摘要模型循环。实际验证范围由[验证说明](validation.md)维护。
+协调状态、选定事实、记忆范围及节点首次和续接上下文的设计见[会话设计](task-conversation-plan.md)。宿主的技能发现和启动引导见[宿主接入](host-integrations.md)，事件进入原会话的时机及去重见[通知设计](notifications.md)。协调历史与压缩沿用 durable SDK；本项目没有另设摘要模型循环。
 
 ## 依赖与一致性边界
 
@@ -56,8 +54,6 @@
 [TaskRuns](../src/tasks/runs.ts)是 Run 状态的唯一业务写入口。状态转换与提交顺序在该服务维护，事务实现在 [TaskStore](../src/tasks/storage/store.ts)。[持久记录校验](../src/tasks/storage/records.ts)严格拒绝缺失或非规范记录，不使用请求默认值修复；管理员提供的下次启动配置另用[配置请求契约](../src/protocol/settings-contract.ts)解析。
 
 Task 输入与相关 Run 决策在业务库中提交；SDK inbox 和 Document 使用独立存储，不宣称跨库原子。会话、输入与补充交付的安全约束见[会话设计](task-conversation-plan.md)。
-
-检查器约束源码依赖，不是权限沙箱，也不证明运行时副作用安全。真实模型和执行端的证据边界见[验证说明](validation.md)。
 
 ## Web 模块
 
@@ -88,14 +84,18 @@ Task 输入与相关 Run 决策在业务库中提交；SDK inbox 和 Document �
 | HTTP listener 与 MCP transport/server | `HttpServer` 持有；请求断开只释放请求资源，应用关闭停止新请求并收尾 |
 | 配置和结果文件描述符 | 文件适配器在单次操作内打开，并在 `finally` 中关闭 |
 
-关闭接口幂等。关闭开始后拒绝新的业务操作；未验收的外部执行被中断并阻断后续自动派发。进程组回收与文件事务不能证明无孤儿进程、断电恢复或外部副作用 exactly-once。
+关闭接口幂等。关闭开始后拒绝新的业务操作；未验收的外部执行被中断并阻断后续自动派发。
 
 ## 集成与验收入口
 
+本地检查按 [AGENTS.md](../AGENTS.md#风格与命令)执行。macOS 临时目录过长导致 Unix socket 路径超限时，使用 `TMPDIR=/private/tmp npm test`。原生 Pi 测试的 SDK 配置见[通知说明](notifications.md#代码与验证入口)。
+
 - [probe-agent.mjs](../scripts/probe-agent.mjs)：只做 ACP initialize。
-- [单节点用例](../tests/e2e/deepseek-acp.test.mjs)、[问题回答 DAG 用例](../tests/e2e/human-dag.test.mjs)、[持续对话、记忆与补充用例](../tests/e2e/task-conversation.test.mjs)：真实模型验收。
-- [E2E harness](../tests/e2e/harness.mjs)、[Pi 启动器](../scripts/run-pi-human-e2e.mjs)：环境准备、服务生命周期和证据保存。
+- [单节点](../tests/e2e/deepseek-acp.test.mjs)、[问题回答 DAG](../tests/e2e/human-dag.test.mjs)、[同会话澄清](../tests/e2e/acp-clarification.test.mjs)、[持续对话与补充](../tests/e2e/task-conversation.test.mjs)：真实模型用例。
+- [E2E harness](../tests/e2e/harness.mjs)、[Pi 启动器](../scripts/run-pi-human-e2e.mjs)：测试环境、服务生命周期和结果输出。
 
-dsh 作为 ACP 执行端使用管理员注册的 `dsh-acp` ID，命令为规范绝对路径的 `dsh --profile acp`；不增加自动发现项或保留 `dsh` ID。它沿用 dsh 自身模型、工具、ACP profile 和后台继承的原生环境；Task Conductor 内部的 pi durable 协调者保持独立，不要求交互式 Pi CLI。操作见[自定义 ACP](../plugin/skills/using-task-conductor/references/custom-acp.md#dsh-acp-执行端)。
+真实模型测试仅在获准环境运行，会产生模型费用。安全注入测试用 `DEEPSEEK_API_KEY` 后，可用 `npm run test:e2e:human -- --suite single` 执行隔离 Pi 用例，其他用例和参数见启动器。它创建独立原生配置并只启用 read；强杀后须核查临时认证清理。其他获准执行端通过 `TASK_CONDUCTOR_E2E_EXECUTOR` 选择，并自行准备原生配置后运行 `npm run test:e2e`。
 
-配置示例见 [config.example.json](../config.example.json)，命令和依赖版本见 [package.json](../package.json)。操作前置条件与已验证范围见[部署说明](deployment.md)、[验证说明](validation.md)。
+dsh 通过[自定义 ACP](../plugin/skills/using-task-conductor/references/custom-acp.md#dsh-acp-执行端)注册，使用其原生模型与工具配置。
+
+配置示例见 [config.example.json](../config.example.json)，命令和依赖版本见 [package.json](../package.json)，操作前提见[部署说明](deployment.md)。

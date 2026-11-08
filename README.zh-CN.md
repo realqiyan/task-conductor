@@ -2,9 +2,9 @@
 
 [English](README.md) | 简体中文
 
-独立的智能任务服务：**MCP 管理任务，pi durable 推进调用方定义的 DAG，ACP 执行端完成领域工作**。协调者凭判断与记忆对整体目标负责，服务保障准入、账本与收尾；不拆解任务或修改计划，也不由程序替代业务判断。
+独立的智能任务服务：**MCP 管理任务，pi durable 推进调用方定义的 DAG，ACP 执行端完成领域工作**。调用方确定节点和执行端，协调者通过持续会话澄清需求、审查交付并判断整体目标是否完成。
 
-当前处于调研阶段，不宣称生产可用，不用于无人值守交易。已有验证结果及适用范围见[验证说明](docs/validation.md)。
+当前处于调研阶段，不宣称生产可用，不用于无人值守交易。
 
 ## 从哪里开始
 
@@ -21,15 +21,14 @@
 | 查询项目术语 | [词汇表](CONTEXT.md) |
 | 查找实现与对应测试 | [代码导航](docs/technical-design.md) |
 | 编写提示、工具说明、技能及调整上下文加载 | [模型指令编写原则](docs/model-instruction-guidelines.md) |
-| 查询测试命令、真实验收及缺口 | [验证说明](docs/validation.md) |
 | npm 候选验收、GitHub Actions 与受控发布 | [发布说明](docs/release.md) |
 | 修改项目 | [开发指南](AGENTS.md)、[架构原则](docs/architecture-guidelines.md) |
 
-默认仓库首页为英文，本页提供中文说明。详细文档、CLI 输出和内置使用引导目前以中文为主。文档保留用途、约束和证据；字段、默认值、状态转换及内部流程以代码为准。
+默认仓库首页为英文，本页提供中文说明。详细文档、CLI 输出和内置使用引导目前以中文为主。文档保留用途、操作和约束；字段、默认值、状态转换及内部流程以代码为准。
 
 ## 使用入口
 
-Linux/macOS，服务及非 dsh 接入要求 Node.js **22.19+**，dsh 要求 **24.9+**。已发布 npm 安装包自带运行产物。实际发布状态及平台验收范围见[发布证据](docs/validation.md#npm-发布候选验证)。
+Linux/macOS，服务及非 dsh 接入要求 Node.js **22.19+**，dsh 要求 **24.9+**。已发布 npm 安装包自带运行产物。
 
 ```bash
 npm install -g task-conductor
@@ -43,7 +42,7 @@ task-conductor restart
 
 setup 确认本机配置；MCP 连接自动启动或复用独立后台，宿主退出后后台继续运行。首次使用须安装至少一种原生执行 CLI，或[注册自定义本机 stdio ACP](docs/cli.md#自定义本机-acp-接入)，并准备其原生认证。Pi、dsh、Claude Code 和 Codex 可先安装[接入包](docs/host-integrations.md)，通过 `using-task-conductor` 完成服务安装、setup 和 MCP 操作。
 
-dsh 使用已有 profile 的原生插件入口，调用 `/using-task-conductor` 或通过 `skill` 工具加载引导。插件按根会话检查并创建 MCP，通知回到原持久会话；使用 `/task-conductor status` 查看、`/task-conductor connect` 重连，无须另添手工 MCP 项。dsh 也可按[自定义 ACP 操作](plugin/skills/using-task-conductor/references/custom-acp.md#dsh-acp-执行端)将 `dsh --profile acp` 注册为执行端。服务内部保留 pi durable 协调，不要求交互式 Pi CLI。执行端准备与服务管理见[部署说明](docs/deployment.md)。
+各宿主的安装和连接命令见[宿主接入](docs/host-integrations.md)；Pi 与 dsh 还支持原会话任务通知。执行端准备和后台管理见[部署说明](docs/deployment.md)。
 
 采用 `mcpServers` 格式的宿主可添加以下配置；文件位置和外层结构由宿主决定：
 
@@ -60,7 +59,7 @@ dsh 使用已有 profile 的原生插件入口，调用 `/using-task-conductor` 
 
 宿主找不到命令时使用绝对路径；自定义安装目录时使用 `["mcp", "--home", "/absolute/private/task-conductor"]`。无需预先执行 `start`。本机 Web 控制台位于 `status` 返回地址的 `/admin/`，使用独立管理员令牌。
 
-任务由 `task_create` 提交固定 DAG，每个节点选择已就绪执行端。每个 Task 保留一条协调会话，Run 单独记录执行；普通消息不启动空闲 ACP 工作，也不代替明确的问题回答。对话与补充执行入口见[会话设计](docs/task-conversation-plan.md#使用与实现入口)。显式工作目录优先，否则 stdio 入口补入自己的启动目录；直接 HTTP 调用必须提供目录。具体契约见 [task-contract.ts](src/protocol/task-contract.ts)，管理工具见 [mcp.ts](src/protocol/mcp.ts)。Prompt、人工回复和工作空间选择都不授予工具权限。
+任务由 `task_create` 提交固定 DAG，每个节点选择已就绪执行端。每个 Task 保留一条协调会话，Run 单独记录执行；普通消息不启动空闲 ACP 工作，也不代替明确的问题回答。对话与补充执行入口见[会话设计](docs/task-conversation-plan.md#使用与实现入口)。显式工作目录优先，否则 stdio 入口补入自己的启动目录；直接 HTTP 调用必须提供目录。具体契约见 [task-contract.ts](src/protocol/task-contract.ts)，管理工具见 [mcp.ts](src/protocol/mcp.ts)。
 
 ## CLI 命令索引
 
@@ -71,16 +70,16 @@ dsh 使用已有 profile 的原生插件入口，调用 `/using-task-conductor` 
 
 ## 运行与安全边界
 
-- 协议 turn 结束不等于任务完成；只有明确验收的交付才能解锁依赖。支持立即、定时及 Cron 任务，单节点与多节点共用 API。
+- 已验收交付解锁依赖，整体完成由协调者明确判断。支持立即、定时及 Cron 任务，单节点与多节点共用 API。
 - 普通讨论不授权额外工作；补充执行必须有明确意图，已验收交付与终结 Run 不可变。
 - 外部工作中断或结果不明时阻止新派发，不自动重试、重放副作用或切换执行端。
-- 沿用执行端原生授权，拒绝额外 ACP 审批请求。目录校验和环境过滤不是 OS 沙箱；日志和 Agent 输出可能敏感。
-- `task-conductor stop` 停止后台及活动执行；重启关闭 ACP 会话，可能中断待回答 Run。客户端断开不等于停服或取消任务。
+- 使用前配置执行端原生认证和无人值守权限；服务拒绝额外 ACP 审批请求。本机 OS 用户属于信任范围，日志和 Agent 输出按敏感数据保护。
+- `task-conductor stop` 停止后台及活动执行；重启关闭 ACP 会话，可能中断待回答 Run，操作前核查活动工作。
 - 服务更新的前置检查、备份、宿主重连和旧版入口统一见[升级说明](docs/upgrades.md)。`update` 不更新插件或执行端，不自动迁移数据；`restart` 仅重启服务子进程以应用配置。
 
 ## 开发
 
-dsh 开发依赖与集成测试使用 Node.js **24.9+**；仓库锁定 dsh `0.2.2-rc.1`。服务和非 dsh 使用者仍支持 Node.js 22.19+。
+开发与 dsh 集成测试使用 Node.js **24.9+**，依赖版本见 [package.json](package.json)。
 
 ```bash
 npm ci --ignore-scripts
@@ -89,7 +88,7 @@ npm test
 git diff --check
 ```
 
-基础测试使用真实本机文件、SQLite、进程和 SDK；真实模型验收需要另行获准的环境，基础测试不证明 ACP 任务成功。
+基础测试使用真实本机文件、SQLite、进程和 SDK。真实模型测试的运行前提与入口见[开发说明](docs/technical-design.md#集成与验收入口)。
 
 ## 许可证
 

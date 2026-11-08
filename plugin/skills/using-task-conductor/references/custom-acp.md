@@ -1,6 +1,6 @@
 # 接入自定义本机 ACP 执行端
 
-使用管理员 CLI 注册用户选定的本机程序。MCP 只能查询并选择就绪 ID，不能注册命令、凭据或端点；Web 复用同一管理服务。沿用用户的注册请求和已有约定，不重复要求批准已确定的操作。
+使用管理员 CLI 注册用户选定的本机程序。MCP 按 ID 查询和选择执行端，Web 也提供管理员注册入口。沿用用户的注册请求和已有约定，不重复要求批准已确定的操作。
 
 ## 准备
 
@@ -31,13 +31,13 @@ task-conductor executor register --file /absolute/private/my-acp.json --yes
 task-conductor executor show my-acp
 ```
 
-自定义安装的每条命令附加原有 `--home`。`--yes` 用于非交互注册。服务先持久化再开放派发，不启动 ACP、探测模型或提交任务。注册立即可见，无需重启，不打断活动会话或改写任务指派；同数据目录重启后保留，切换数据目录不复制注册。
+自定义安装的每条命令附加原有 `--home`，非交互注册使用 `--yes`。注册校验本地启动条件并立即生效；活动会话和任务指派保持原状。注册随当前 dataDir 保存，目录切换后使用目标目录的注册。
 
 执行端继承后台过滤后的原生环境，不是执行注册命令的终端环境。若要改变 PATH、HOME 或原生配置环境，核查活动工作后停止后台，再从目标环境启动；刷新和注册不会导入新终端变量。
 
 ## dsh ACP 执行端
 
-使用 **Node.js 24.9+** 和 dsh 原生 ACP profile。安装 dsh 时遵循其当前发布说明；Task Conductor 仓库开发基线固定为 `0.2.2-rc.1`，不要求用户安装同一精确版本。dsh 自身的模型、工具、认证和 `acp` profile 须在后台所用 OS 用户及环境下准备。
+使用 **Node.js 24.9+**，按 dsh 当前发布说明安装，并在后台所用 OS 用户及环境下准备模型、工具、认证和原生 `acp` profile。
 
 注册 ID 采用 `dsh-acp`，command 替换为已安装 `dsh` 可执行文件解析符号链接后的规范绝对路径：
 
@@ -54,13 +54,13 @@ task-conductor executor register --file /absolute/private/dsh-acp.json --yes
 task-conductor executor show dsh-acp
 ```
 
-这里使用原生 **`dsh --profile acp`**，没有额外适配器包或单独的 ACP 可执行命令。不注册为内置执行端，也不保留 `dsh` ID。Task Conductor 宿主插件和此 ACP 入口独立；无需为了执行任务把宿主插件安装到 `acp` profile。内部协调仍使用服务的 pi durable 及协调模型配置，不要求交互式 Pi CLI，不把宿主模型或协调凭据导入 dsh 执行端。
+该入口直接使用原生 **`dsh --profile acp`**，无需额外适配器或宿主插件。dsh 使用自己的模型与工具配置，服务协调模型单独配置。
 
 ## 查询和使用
 
 用 `task-conductor executor list` 核对 ID，再通过实际 MCP `executor_list({})` 查询。如果此前因无执行端而连接失败，重连 MCP；dsh 主会话使用 `/task-conductor connect`。之后按[任务使用](tasks.md)在节点中选择 `executorId`，例如 `dsh-acp`。
 
-ready 只说明本机启动准备完成，不证明 ACP/模型任务成功；注册检查不需要提交试验任务。
+注册核查使用上述只读查询；随后为用户的实际任务选择该执行端。
 
 ## 移除或更改
 

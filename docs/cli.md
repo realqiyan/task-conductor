@@ -1,6 +1,6 @@
 # 本机管理 CLI
 
-CLI 覆盖 Web 的配置、凭据、执行端管理、任务查询、未来触发控制及重启操作。两端通过同一管理 API 使用配置、执行端和任务服务；重启由同一启动器处理。命令入口见 [命令实现](../src/protocol/cli/commands.ts)，管理传输见 [admin-client.ts](../src/protocol/cli/admin-client.ts)。
+CLI 提供配置、凭据、执行端管理、任务查询、未来触发控制及重启操作，与 Web 共用管理能力。
 
 ## 连接与命令
 
@@ -17,11 +17,11 @@ task-conductor task --help
 task-conductor run --help
 ```
 
-逐级帮助是命令与参数的完整入口。管理命令支持 `--json`，结果写入 stdout，预览和诊断写入 stderr；失败退出码非零。非交互保存、适配器升级与任务变更须使用 `--yes`，它只确认本次操作，不授予执行端原生工具权限。
+逐级帮助提供完整参数。管理命令支持 `--json`，结果写入 stdout，预览和诊断写入 stderr；失败退出码非零。非交互保存、适配器升级与任务变更须使用 `--yes`。
 
 `console token` 无需启动服务，用法见[控制台说明](web-console.md#启用与连接)。其他管理命令需要服务运行；初始化和排障见[部署说明](deployment.md)。
 
-服务包更新入口为 `task-conductor update [--home 绝对目录] [--json]`，只更新当前 npm 全局 prefix 对应的同一份安装，无额外确认或 `--yes`。`restart` 仍只重启服务子进程以应用配置；数据迁移仍使用独立离线入口 `migrate`。支持范围、备份与重连、旧版入口及失败处理统一见[升级说明](upgrades.md)。
+服务更新使用 `task-conductor update`，配置生效使用 `restart`，离线数据迁移使用 `migrate`。支持范围、备份、重连和失败处理见[升级说明](upgrades.md)。
 
 ## 配置流程
 
@@ -41,9 +41,7 @@ task-conductor config show --running
 
 导出文件不包含密钥值，以私有权限创建，拒绝覆盖已有文件。编辑令牌过期、服务重启或任一客户端保存配置/凭据后，旧草稿不能提交；重新读取并人工核对，不自动合并。草稿契约见 [settings-contract.ts](../src/protocol/settings-contract.ts)。
 
-`executor enable/disable` 和 `coordinator` 提供便捷配置操作。配置服务生成候选配置，再走同一预览、校验和保存流程。内置执行端自动发现，无须手工注册、设置默认工作目录或另行批准。自定义 ACP 注册使用下述独立管理入口，不属于下次启动配置。启用与禁用在下次启动生效，不改写已有任务的执行端指派。
-
-配置与凭据均在下次启动生效。影响预览不修改旧任务快照，也不证明模型认证或 ACP 执行成功。保存顺序、端点与凭据隔离、重启影响见[控制台说明](web-console.md#保存与重启)。
+`executor enable/disable` 和 `coordinator` 提供便捷配置操作，均经预览、校验和保存后在下次启动生效。已有任务保持原执行端指派。凭据保存顺序和重启影响见[控制台说明](web-console.md#保存与重启)。
 
 ## 执行端发现与更新
 
@@ -56,13 +54,13 @@ task-conductor executor upgrade codex --yes
 task-conductor executor list
 ```
 
-发现、安装复用、升级影响和原生认证统一见[部署说明](deployment.md#执行端发现与准备)。就绪不证明工具授权或任务成功；PATH 变化也不能仅靠刷新生效。
+发现、适配器升级、PATH 变更与原生认证见[部署说明](deployment.md#执行端发现与准备)。
 
 ## 自定义本机 ACP 接入
 
-通过管理员 CLI 注册，不增加任务 MCP 注册工具。注册授权服务启动本机代码；MCP 仍只能查询并选择执行端 ID。Web 使用同一管理 API 和执行端服务。仅接入由服务启动的本机 stdio ACP 进程，不接受远程地址或附着已有服务。
+管理员可注册由服务启动的本机 stdio ACP 程序，MCP 调用方通过 ID 选择执行端。注册授权服务启动本机代码，需先准备其原生认证与无人值守权限。
 
-先安装执行程序，在其原生配置中完成认证和无人值守授权。注册文件使用私有权限，不含密钥；格式与限制见 [注册契约](../src/executors/validation.ts)，完整操作引导见 [custom-acp](../plugin/skills/using-task-conductor/references/custom-acp.md)。先查 `task-conductor executor --help` 确认已安装服务支持此入口，再执行：
+准备不含密钥的私有注册文件，格式与 dsh 示例见[注册引导](../plugin/skills/using-task-conductor/references/custom-acp.md)。确认 `task-conductor executor --help` 提供注册命令后执行：
 
 ```bash
 task-conductor executor register --file /absolute/private/my-acp.json --yes
@@ -71,13 +69,11 @@ task-conductor executor show my-acp
 task-conductor executor unregister my-acp --yes
 ```
 
-管理服务须已运行；尚未启动时，在另一终端运行 `task-conductor start`。没有内置 CLI 也能注册。命令使用规范绝对路径及参数数组，直接执行而非 shell 展开。注册可选 `cwd`，须为已存在且可访问的规范绝对目录；省略时进程从任务 workspace 启动。该字段仅设置进程启动目录，不覆盖 ACP 会话使用的任务 workspace。执行端使用后台的过滤后原生环境，不继承注册命令所在终端的新环境变量。
+管理服务须已运行；需要时在另一终端执行 `task-conductor start`。命令使用规范绝对路径和参数数组，可选 `cwd` 设置进程启动目录，任务 workspace 保持不变。执行端使用后台的原生环境，环境变化按[部署说明](deployment.md#执行端发现与准备)处理。
 
-**注册和注销持久化后立即生效，无须重启。** 注册只校验本地启动条件，不启动 ACP 或调用模型；`ready` 不证明协议兼容、认证或工具授权。MCP 初始化曾因无执行端失败时，注册后重连 MCP 即可。原生环境变更仍按[部署说明](deployment.md#执行端发现与准备)处理。
+**注册和注销持久化后立即生效。** 注册校验本地启动条件；无执行端导致 MCP 连接失败时，注册后重连。注册随当前 dataDir 保存。
 
-同名注册拒绝覆盖。变更启动方式时优先使用新 ID，按需创建经批准的新任务，不改派已有任务或绕过不确定结果。注销只阻止新的派发，不杀死活动进程、不删除历史；后续续接可能被拒绝。旧任务保持原启动快照，即使重新注册相同 ID，命令、参数或 `cwd` 变化也会被拒绝。固定路径不是文件内容完整性保证或沙箱。
-
-注册存于当前 dataDir 的私有文件，随该目录保留；切换数据目录不复制注册。不要在运行时离线编辑。读写实现见 [files.ts](../src/executors/files.ts)，准入与发布顺序见 [registry.ts](../src/executors/registry.ts)。发布结果不明时停止并核查，不盲目重试。
+同名注册拒绝覆盖；变更启动方式使用新 ID，由后续任务选择。注销阻止新派发，活动进程与历史保留。旧任务保持原命令、参数和 cwd 快照，重新注册同名 ID 也须匹配。结果不明时先查询状态。
 
 ## 凭据与任务
 

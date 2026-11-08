@@ -6,7 +6,7 @@ A standalone service for persistent, agent-driven tasks: **MCP manages tasks, a 
 
 The caller defines the plan and assigns an executor to each node. The coordinator uses judgment and persistent memory to clarify requirements, review deliveries, and decide whether the overall goal is complete. It does not split tasks or change the plan.
 
-**Research-stage software.** Not production-ready or intended for unattended trading. Installation, protocol connectivity, and successful task execution are separate claims; see the [validation scope and limitations](docs/validation.md).
+**Research-stage software.** Not production-ready or intended for unattended trading.
 
 ## Quick start
 
@@ -41,17 +41,15 @@ Requires **Linux or macOS, Node.js 22.19+, and npm**. Using dsh requires **Node.
    task-conductor status
    ```
 
-The background service continues after the host disconnects. Native CLI discovery and adapter preparation do not prove that model authentication or tool permissions work. See [deployment](docs/deployment.md) for setup, executor preparation, and troubleshooting.
+The background service continues after the host disconnects. See [deployment](docs/deployment.md) for executor preparation and service management.
 
-The separate [host integration package](docs/host-integrations.md) provides the `using-task-conductor` guide for Pi, dsh, Claude Code, and Codex.
-
-In an existing dsh profile, invoke `/using-task-conductor` or load it through the native `skill` tool. The plugin checks each root session, creates its native MCP connection, and delivers background events to the original persistent session. Use `/task-conductor status` and `/task-conductor connect` to inspect or reconnect it. dsh can also be [registered as a custom ACP executor](plugin/skills/using-task-conductor/references/custom-acp.md#dsh-acp-执行端) using `dsh --profile acp`. Task Conductor still uses pi durable internally; an interactive Pi CLI is not required.
+The [host integration package](docs/host-integrations.md) provides the `using-task-conductor` guide for Pi, dsh, Claude Code, and Codex, with setup and connection instructions for each host. Pi and dsh also receive task notifications in the original session.
 
 ## How tasks work
 
 - Submit a fixed DAG with `task_create`, assigning a ready local ACP executor to each node. Single-node and multi-node tasks use the same API. Immediate, scheduled, and Cron execution are supported.
 - Each Task retains one durable coordination conversation; each Run records a separate execution admission and its results.
-- Explicitly accepted executor deliveries unlock dependencies. An ended protocol turn does not mean that the task is complete.
+- Accepted executor deliveries unlock dependencies; the coordinator explicitly decides when the overall goal is complete.
 - Ordinary discussion does not start idle ACP work or answer a pending question. Additional work requires explicit intent; accepted deliveries and terminal Runs remain immutable.
 - Supply an existing absolute `workspace`, or let the stdio entry supply its launch directory. Direct HTTP callers must provide it. The directory is fixed when the task is created.
 
@@ -66,13 +64,13 @@ task-conductor stop     # Stop the background service and active execution
 task-conductor --help
 ```
 
-The loopback-only Web console is available at `/admin/` on the address reported by `status`. It uses a separate administrator token. CLI and Web management share the same business services.
+The local [Web console](docs/web-console.md) is available at `/admin/` on the address reported by `status`. It uses a separate administrator token. The [CLI](docs/cli.md) provides the same management operations.
 
-- Prompts, human replies, and workspace selection do not grant tool permissions. Executors use native authorization; additional ACP approval requests are rejected.
+- Configure each executor's native authorization for unattended work. Additional ACP approval requests are rejected.
 - Interrupted or uncertain external work blocks new dispatch. The service does not automatically retry, replay side effects, or switch executors.
-- Restarting closes ACP sessions and may interrupt Runs awaiting input. Client disconnection, service shutdown, and task cancellation are different operations.
+- Restarting closes ACP sessions and may interrupt Runs awaiting input. Check active Runs before restarting.
 - Use `task-conductor update` to update the service package and replace both the launcher and service process. Follow the [upgrade procedure](docs/upgrades.md) for backups, MCP reconnection, and older CLI versions. Data migration remains a separate offline operation.
-- Logs and agent output may contain sensitive information. Local path checks and environment filtering are not an OS sandbox.
+- The service trusts the local OS user. Protect logs and agent output as sensitive data.
 
 ## Documentation
 
@@ -91,15 +89,14 @@ Detailed operational and design documents are currently in **Chinese**. The Engl
 | Terminology | [Glossary](CONTEXT.md) |
 | Implementation and test navigation | [Technical design](docs/technical-design.md) |
 | Prompts, tool descriptions, skills, and context loading | [Model instruction guidelines](docs/model-instruction-guidelines.md) |
-| Evidence and unverified boundaries | [Validation](docs/validation.md) |
 | Package validation and controlled npm releases | [Release guide](docs/release.md) |
 | Contributing | [Development guide](AGENTS.md), [architecture guidelines](docs/architecture-guidelines.md) |
 
-Documentation explains goals, constraints, and evidence. Source contracts remain authoritative for fields, defaults, and state transitions.
+Documentation explains goals, usage, and constraints. Source contracts remain authoritative for fields, defaults, and state transitions.
 
 ## Development
 
-Use Node.js **24.9+** for the dsh development dependency and integration tests. The repository locks dsh to `0.2.2-rc.1`; the service and non-dsh consumers retain Node.js 22.19+ support.
+Use Node.js **24.9+** for development and dsh integration tests. Dependency versions are defined in [package.json](package.json).
 
 ```bash
 npm ci --ignore-scripts
@@ -108,7 +105,7 @@ npm test
 git diff --check
 ```
 
-Tests use real local files, SQLite, processes, and SDKs. Real-model acceptance requires a separately authorized environment; the default suite does not establish successful ACP task execution.
+Tests use real local files, SQLite, processes, and SDKs. Real-model test requirements and entry points are in the [development guide](docs/technical-design.md#集成与验收入口).
 
 ## License
 

@@ -6,7 +6,7 @@
 
 1. 检查宿主、OS、Node/npm、已有命令和配置。服务及非 dsh 接入要求 Linux/macOS、Node.js 22.19+；dsh 要求 24.9+。使用 `node --version`、`npm --version`、`command -v task-conductor`，已找到时查询 `task-conductor --version`。
 2. 核对已有自定义 `--home` 和 MCP 连接。命令不在 PATH 时检查已知安装与 `npm prefix -g`，优先使用已有绝对路径，不另装一份修复 PATH。
-3. 服务缺失时，用宿主 shell 执行用户选定来源的安装。已发布版本使用 `npm install -g task-conductor`；源码版本使用下一节的本地构建。检查退出码和版本，不因插件版本相同推断 registry 已有对应服务改动。
+3. 服务缺失时，用宿主 shell 执行用户选定来源的安装。已发布版本使用 `npm install -g task-conductor`；源码版本使用下一节的本地构建。检查安装退出码和服务版本。
 4. 沿用宿主原生权限。权限或网络不足时报告失败，给出同一命令供用户终端执行，不自动 sudo、更改 prefix 或放宽策略。
 
 ## 本地构建
@@ -17,11 +17,11 @@
 npm ci --ignore-scripts
 npm pack --pack-destination /absolute/artifacts
 node scripts/pack-plugin.mjs /absolute/artifacts
-npm install -g /absolute/artifacts/task-conductor-0.1.8.tgz
-dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plugin-0.1.8.tgz
+npm install -g /absolute/artifacts/task-conductor-0.1.9.tgz
+dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plugin-0.1.9.tgz
 ```
 
-`npm pack` 会构建服务。将 `existing-profile` 换成已有目标 profile，不重建或重置它；只安装插件 tarball 不需要构建服务。已有服务替换先按下一节停服备份。面向 registry 的 `task-conductor update` 不会获取未发布源码。
+`npm pack` 会构建服务。将 `existing-profile` 换成已有目标 profile；保留其原配置。已有服务替换先按下一节停服备份。
 
 也可执行 `npm run build` 后直接用源码中的 `bin/task-conductor.mjs`，将其绝对路径放入 `TASK_CONDUCTOR_PREFLIGHT_COMMAND`。该变量接受可执行文件路径，不是 `node ...` 命令字符串；`TASK_CONDUCTOR_PREFLIGHT_HOME` 使用同一个 setup home。修改环境或重装插件后重开目标 profile。
 
@@ -33,7 +33,7 @@ dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plu
 
 支持时使用 `task-conductor update`，自定义安装附加原有 `--home`，无需额外确认或 `--yes`。执行前核查活动及待回答 Run、停服备份 home 和 dataDir，并保持宿主断开；同版本也完整重启，后台原已停止时更新后仍会启动。命令只更新服务，不更新插件或执行端。
 
-已发布 `0.1.4` 等尚无 `update` 的旧版，或替换为上述本地 tarball，走 `stop` → 同一 prefix 的 npm 安装 → 数据检查 → 重连。旧版细节见[升级入口](https://github.com/realqiyan/task-conductor/blob/master/docs/upgrades.md#旧版升级入口)。
+尚无 `update` 命令的旧版，或替换为本地 tarball，走 `stop` → 同一 prefix 的 npm 安装 → 数据检查 → 重连。旧版细节见[升级入口](https://github.com/realqiyan/task-conductor/blob/master/docs/upgrades.md#旧版升级入口)。
 
 更新后按[注册或重连](#注册或重连)刷新宿主 stdio 进程，保留原注册；核对运行版本和只读 MCP 调用。失败时保留原数据并报告失败阶段，不自动迁移、回滚或重放工作。
 
@@ -47,7 +47,7 @@ dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plu
 
 ## 启动检查与目标
 
-插件用限时、限输出的 `task-conductor setup --check --json` 检查初始化，再用 `task-conductor status --json` 查询已有后台的版本。检查本身不启动、重启或修复。已初始化但停止的后台不是未安装；当前会话内升级仍须重连验证。
+插件只读检查初始化状态和已有后台版本。安装或升级后，按下面步骤重连并核查工具。
 
 自定义命令/home 在宿主启动环境设置：
 
@@ -60,7 +60,7 @@ export TASK_CONDUCTOR_PREFLIGHT_HOME=/absolute/private/task-conductor
 - Pi：两者用于检查和通知桥接，MCP 仍须单独配置为相同程序/home；`TASK_CONDUCTOR_MCP_SERVER` 匹配已有服务名。
 - Claude/Codex：两者只选检查目标，MCP 另按下文配置。
 
-修改启动环境后重开宿主。Codex hook 需要用户在 `/hooks` 审查并信任，沿用原生机制。缺少提示不证明已连接，skill 可独立加载。
+修改启动环境后重开宿主。Codex hook 需要用户在 `/hooks` 审查并信任。skill 可独立加载。
 
 ## 注册或重连
 
@@ -68,14 +68,14 @@ export TASK_CONDUCTOR_PREFLIGHT_HOME=/absolute/private/task-conductor
 
 ### dsh 原生接入
 
-从目标项目目录启动已安装插件的 profile。每个非子代理根会话执行检查，通过后创建该 Agent 的 MCP，固定 cwd 为原生 session header 的 cwd；子代理不能借用父连接。MCP 可能启动共享后台；缺少协调模型时仍可连接查询。服务未准备时也能调用 `/using-task-conductor` 或通过 `skill` 工具加载引导。
+从目标项目目录启动已安装插件的 profile。根会话检查通过后创建 MCP，默认 workspace 使用该会话启动目录；子代理由主会话提交任务。服务未准备时仍可调用 `/using-task-conductor` 或用 `skill` 加载引导。
 
 ```text
 /task-conductor status
 /task-conductor connect
 ```
 
-用 `status` 核对状态与工作目录，setup、执行端注册或故障修正后用 `connect` 重新检查并连接。无需手工编辑 MCP 配置或插件缓存。通知由 dsh Host 会话持有，浏览器不持有连接或确认职责。
+用 `status` 核对状态与工作目录，setup、执行端注册或故障修正后用 `connect` 重连。连接由插件管理。
 
 ### Pi 1.4.0+ 原生 MCP
 
@@ -125,6 +125,6 @@ codex mcp add task-conductor -- /absolute/bin/task-conductor mcp --home /absolut
 
 ## 连接核查
 
-确认实际连接并列出工具，再通过实际命名空间调用 `executor_list({})`、`task_list({})`。Pi 默认使用原生工具搜索/codemode；dsh 使用原生 MCP 工具。不为安装检查提交任务或调用收费模型；执行端 ready 只说明启动准备完成。
+确认实际连接并列出工具，再通过实际命名空间调用 `executor_list({})`、`task_list({})`。Pi 默认使用原生工具搜索/codemode；dsh 使用原生 MCP 工具。安装核查使用上述只读调用；创建任务前完成执行端原生认证与权限配置。
 
 后续 CLI 使用相同 `--home`。宿主退出不停止共享后台，`stop`/`restart` 会影响活动工作，操作前核查相关 Run。
