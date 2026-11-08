@@ -29,7 +29,7 @@
 
 宿主接入位于 [plugin](../plugin/)，作为独立包分发；dsh SDK 由宿主提供。安装见[宿主接入](host-integrations.md)，通知归属与回执设计见[通知说明](notifications.md#可靠性与所有权)。
 
-[Pi 扩展](../plugin/pi-extension.js)与[dsh 插件](../plugin/dsh.js)复用 CLI 检查摘要和共享技能。dsh 先注册技能，再按根会话建立原生 MCP；stdio cwd 固定为 session header 的 cwd，子代理调用由工具守卫拒绝。HTTP 传输失败时 [stdio](../src/protocol/stdio.ts)关闭连接，宿主重连后重新解析地址，失败调用由调用方核查。
+[Pi 扩展](../plugin/pi-extension.js)与[dsh 插件](../plugin/dsh.js)复用 CLI 检查摘要和共享技能。dsh 先注册技能，再按根会话建立原生 MCP；stdio cwd 固定为 session header 的 cwd，子代理调用由工具守卫拒绝。HTTP 传输失败时 [stdio](../src/protocol/stdio.ts)关闭连接，宿主重连后重新解析地址，失败调用由调用方核查。dsh Web 控制台由[宿主代理](../plugin/scripts/console-proxy.mjs)转发现有管理员 API，[客户端页面](../plugin/client.js)注册为侧栏面板与主面板槽条目；代理不读取或保存管理员令牌。
 
 宿主验证入口为[启动检查](../tests/host-preflight.test.mjs)、[安装接入](../tests/host-integrations.test.mjs)、[dsh SDK](../tests/dsh-integration.test.mjs)和[插件包门禁](../scripts/pack-plugin.mjs)。
 

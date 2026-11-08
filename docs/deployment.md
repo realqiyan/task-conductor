@@ -32,7 +32,7 @@ task-conductor setup --home /absolute/private/task-conductor \
 ```bash
 npm ci --ignore-scripts
 npm pack --pack-destination /absolute/artifacts
-npm install -g /absolute/artifacts/task-conductor-0.1.9.tgz
+npm install -g /absolute/artifacts/task-conductor-0.2.0.tgz
 ```
 
 `npm pack` 会构建服务。首次安装后运行 setup；替换已有安装先按[升级流程](upgrades.md)停服备份，再在同一 prefix 安装并重连。

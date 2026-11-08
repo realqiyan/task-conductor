@@ -19,7 +19,7 @@ pi install npm:task-conductor-plugin
 将 `existing-profile` 替换为已有目标 profile，tarball 使用[本地打包](#未发布资产的本地验收)的输出路径：
 
 ```bash
-dsh plugin --profile existing-profile add /absolute/path/to/task-conductor-plugin-0.1.9.tgz
+dsh plugin --profile existing-profile add /absolute/path/to/task-conductor-plugin-0.2.0.tgz
 ```
 
 从目标项目目录启动该 profile，调用 `/using-task-conductor` 或用原生 `skill` 工具加载引导。插件为每个根会话建立 MCP，任务默认目录取自该会话的启动目录；子代理须由主会话提交任务。服务尚未准备时仍可使用技能。
@@ -30,6 +30,8 @@ dsh plugin --profile existing-profile add /absolute/path/to/task-conductor-plugi
 ```
 
 `status` 查看连接、目录和通知归属；setup、执行端注册或故障修正后用 `connect` 重连。无需另加手工 MCP 项。
+
+dsh Web 侧栏的“任务控制台”面板（位于“期权工作台”下方）集成同一[本机控制台](web-console.md)，用于任务、执行端与服务配置；管理员 API 须已启用，令牌从 `task-conductor console token` 获取。令牌可保存到本机 dsh 凭据，刷新页面后自动连接；取消“记住令牌”或断开连接即清除。
 
 ### Claude Code
 
@@ -64,7 +66,7 @@ TASK_CONDUCTOR_SOURCE="$(pwd -P)"
 pi install "$TASK_CONDUCTOR_SOURCE/plugin"
 
 node scripts/pack-plugin.mjs /absolute/artifacts
-dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plugin-0.1.9.tgz
+dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plugin-0.2.0.tgz
 
 MARKETPLACE="$(node scripts/create-plugin-marketplace.mjs)"
 claude plugin marketplace add "$MARKETPLACE"

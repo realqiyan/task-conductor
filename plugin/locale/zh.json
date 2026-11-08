@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Task Conductor",
+    "description": "在 dsh 内查看本机任务、执行端与服务配置。"
+  }
+}

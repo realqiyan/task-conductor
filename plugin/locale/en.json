@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Task Conductor",
+    "description": "Inspect local tasks, executors, and service configuration inside dsh."
+  }
+}

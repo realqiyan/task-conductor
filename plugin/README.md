@@ -22,7 +22,7 @@ dsh 使用本地插件 tarball。在源码仓库根目录打包，输出目录�
 
 ```bash
 node scripts/pack-plugin.mjs /absolute/artifacts
-dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plugin-0.1.9.tgz
+dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plugin-0.2.0.tgz
 ```
 
 从目标项目目录重开 profile。服务本地构建、源码插件安装及开发 marketplace 见[宿主接入说明](https://github.com/realqiyan/task-conductor/blob/master/docs/host-integrations.md#未发布资产的本地验收)。
@@ -39,6 +39,8 @@ dsh plugin --profile existing-profile add /absolute/artifacts/task-conductor-plu
 技能沿用已有安装与配置约定，指导 setup 和连接。凭据在用户终端或私有文件中处理。Pi 在 setup 后注册 MCP；Claude/Codex 使用插件声明的连接；dsh 为根会话建立 MCP，使用 `/task-conductor status` 查看、`/task-conductor connect` 重连。服务尚未准备时仍可调用技能。
 
 启动检查读取初始化状态和后台版本，异常时提供技能入口。Codex 的 hook 需先在 `/hooks` 中审查并信任。自定义程序、home 及各宿主连接步骤见[安装与连接](skills/using-task-conductor/references/installation.md)。
+
+dsh Web 侧栏的“任务控制台”面板（位于“期权工作台”下方）提供同一套任务、执行端与服务配置页面。管理员 API 须已启用；首次进入粘贴 `task-conductor console token` 输出的令牌。浏览器请求经 dsh 宿主转发到本机服务，令牌可保存到本机 dsh 凭据，刷新页面后自动连接；取消“记住令牌”或断开连接即清除。插件配置可选 `console.command` 与 `console.home`，默认沿用 `TASK_CONDUCTOR_PREFLIGHT_COMMAND` 与 `TASK_CONDUCTOR_PREFLIGHT_HOME`。
 
 ## 任务与通知
 

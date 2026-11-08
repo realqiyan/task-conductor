@@ -8,11 +8,14 @@ import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { inspectInstallation, onboardingNotice } from "./scripts/preflight.mjs";
 import { DshNotifications, dshSessionId } from "./scripts/dsh-notifications.mjs";
 import { notificationType } from "./scripts/notification-common.mjs";
+import { registerConsoleProxy } from "./scripts/console-proxy.mjs";
 
 export const name = "task-conductor";
 export const inject = ["agents", "sessions", "sessionPersistence", "tools", "skills", "commands"];
 
-export async function apply(ctx) {
+export async function apply(ctx, config = {}) {
+  // Web 控制台只在有浏览器载体的宿主中注册；无 Web 服务时其余接入保持可用。
+  ctx.inject(["webServer", "connection"], web => registerConsoleProxy(web, config.console ?? {}));
   const [major, minor] = process.versions.node.split(".").map(Number);
   if (major < 24 || (major === 24 && minor < 9)) throw new Error("Task Conductor 的 dsh 接入需要 Node.js 24.9.0 或更新版本。");
   await ctx.plugin(SkillFilesystem, { providerName: "task-conductor", includeDefaultRoots: false,

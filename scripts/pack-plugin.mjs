@@ -39,9 +39,11 @@ assert.equal(packed.status, 0, "Host package failed to pack: " + packed.stderr);
 const [artifact] = JSON.parse(packed.stdout);
 const required = [
   "package.json", "README.md", "LICENSE", "mcp.json",
-  "pi-extension.js", "dsh.js", "cordis.patch.yml", "hooks/claude.json", "hooks/codex.json",
+  "pi-extension.js", "dsh.js", "client.js", "cordis.patch.yml", "icon.svg",
+  "locale/en.json", "locale/zh.json",
+  "hooks/claude.json", "hooks/codex.json",
   "scripts/preflight.mjs", "scripts/session-start.mjs", "scripts/notifications.mjs",
-  "scripts/notification-common.mjs", "scripts/dsh-notifications.mjs",
+  "scripts/notification-common.mjs", "scripts/dsh-notifications.mjs", "scripts/console-proxy.mjs",
   ".claude-plugin/plugin.json", ".codex-plugin/plugin.json",
   "skills/using-task-conductor/SKILL.md",
   "skills/using-task-conductor/references/installation.md",
